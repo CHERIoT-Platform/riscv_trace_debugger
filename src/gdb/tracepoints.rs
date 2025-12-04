@@ -1,5 +1,8 @@
-use crate::emu::Emu;
+use crate::machine::Machine;
+use crate::riscv_arch::RiscvArch;
 use gdbstub::target;
+use gdbstub::target::TargetError;
+use gdbstub::target::TargetResult;
 use gdbstub::target::ext::tracepoints::ExperimentExplanation;
 use gdbstub::target::ext::tracepoints::ExperimentStatus;
 use gdbstub::target::ext::tracepoints::FrameDescription;
@@ -12,11 +15,9 @@ use gdbstub::target::ext::tracepoints::TracepointAction;
 use gdbstub::target::ext::tracepoints::TracepointEnumerateState;
 use gdbstub::target::ext::tracepoints::TracepointEnumerateStep;
 use gdbstub::target::ext::tracepoints::TracepointStatus;
-use gdbstub::target::TargetError;
-use gdbstub::target::TargetResult;
 
-impl Emu {
-    fn step_to_next_tracepoint(&self, tp: Tracepoint) -> TracepointEnumerateStep<u32> {
+impl<A: RiscvArch> Machine<A> {
+    fn step_to_next_tracepoint(&self, tp: Tracepoint) -> TracepointEnumerateStep<u64> {
         let next_tp = self.tracepoints.range(tp..).nth(1);
         if let Some((tp, (new_tp, _, _))) = next_tp {
             TracepointEnumerateStep::Next {
@@ -30,14 +31,14 @@ impl Emu {
     }
 }
 
-impl target::ext::tracepoints::Tracepoints for Emu {
+impl<A: RiscvArch> target::ext::tracepoints::Tracepoints for Machine<A> {
     fn tracepoints_init(&mut self) -> TargetResult<(), Self> {
         self.tracepoints.clear();
         self.traceframes.clear();
         Ok(())
     }
 
-    fn tracepoint_create_begin(&mut self, tp: NewTracepoint<u32>) -> TargetResult<(), Self> {
+    fn tracepoint_create_begin(&mut self, tp: NewTracepoint<u64>) -> TargetResult<(), Self> {
         self.tracepoints.insert(tp.number, (tp, vec![], vec![]));
         Ok(())
     }
@@ -45,7 +46,7 @@ impl target::ext::tracepoints::Tracepoints for Emu {
     fn tracepoint_create_continue(
         &mut self,
         tp: Tracepoint,
-        action: &TracepointAction<'_, u32>,
+        action: &TracepointAction<'_, u64>,
     ) -> TargetResult<(), Self> {
         if let &TracepointAction::Registers { mask: _ } = &action {
             // we only handle register collection actions for the simple
@@ -67,7 +68,7 @@ impl target::ext::tracepoints::Tracepoints for Emu {
     fn tracepoint_status(
         &self,
         tp: Tracepoint,
-        _addr: u32,
+        _addr: u64,
     ) -> TargetResult<TracepointStatus, Self> {
         // We don't collect "real" trace buffer frames, so just report hit count
         // and say the number of bytes is always 0.
@@ -83,15 +84,15 @@ impl target::ext::tracepoints::Tracepoints for Emu {
         })
     }
 
-    fn tracepoint_enumerate_state(&mut self) -> &mut TracepointEnumerateState<u32> {
+    fn tracepoint_enumerate_state(&mut self) -> &mut TracepointEnumerateState<u64> {
         &mut self.tracepoint_enumerate_state
     }
 
     fn tracepoint_enumerate_start(
         &mut self,
         tp: Option<Tracepoint>,
-        f: &mut dyn FnMut(&NewTracepoint<u32>),
-    ) -> TargetResult<TracepointEnumerateStep<u32>, Self> {
+        f: &mut dyn FnMut(&NewTracepoint<u64>),
+    ) -> TargetResult<TracepointEnumerateStep<u64>, Self> {
         let tp = match tp {
             Some(tp) => tp,
             None => {
@@ -123,8 +124,8 @@ impl target::ext::tracepoints::Tracepoints for Emu {
         &mut self,
         tp: Tracepoint,
         step: u64,
-        f: &mut dyn FnMut(&TracepointAction<'_, u32>),
-    ) -> TargetResult<TracepointEnumerateStep<u32>, Self> {
+        f: &mut dyn FnMut(&TracepointAction<'_, u64>),
+    ) -> TargetResult<TracepointEnumerateStep<u64>, Self> {
         // Report our next action
         (f)(&self.tracepoints[&tp].2[step as usize]);
 
@@ -189,7 +190,7 @@ impl target::ext::tracepoints::Tracepoints for Emu {
 
     fn select_frame(
         &mut self,
-        frame: FrameRequest<u32>,
+        frame: FrameRequest<u64>,
         report: &mut dyn FnMut(FrameDescription),
     ) -> TargetResult<(), Self> {
         // For a bare-bones example, we only support `tfind <number>` and `tfind
@@ -234,13 +235,13 @@ impl target::ext::tracepoints::Tracepoints for Emu {
     }
 }
 
-impl target::ext::tracepoints::TracepointSource for Emu {
+impl<A: RiscvArch> target::ext::tracepoints::TracepointSource for Machine<A> {
     fn tracepoint_enumerate_source(
         &mut self,
         tp: Tracepoint,
         step: u64,
-        f: &mut dyn FnMut(&SourceTracepoint<'_, u32>),
-    ) -> TargetResult<TracepointEnumerateStep<u32>, Self> {
+        f: &mut dyn FnMut(&SourceTracepoint<'_, u64>),
+    ) -> TargetResult<TracepointEnumerateStep<u64>, Self> {
         // Report our next source item
         (f)(&self.tracepoints[&tp].1[step as usize]);
 
@@ -257,7 +258,7 @@ impl target::ext::tracepoints::TracepointSource for Emu {
 
     fn tracepoint_attach_source(
         &mut self,
-        src: SourceTracepoint<'_, u32>,
+        src: SourceTracepoint<'_, u64>,
     ) -> TargetResult<(), Self> {
         self.tracepoints
             .get_mut(&src.number)

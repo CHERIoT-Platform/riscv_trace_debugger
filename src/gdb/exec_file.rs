@@ -1,10 +1,15 @@
+use crate::machine::Machine;
+use crate::riscv_arch::RiscvArch;
+
 use super::copy_range_to_buf;
-use crate::emu::Emu;
 use gdbstub::common::Pid;
 use gdbstub::target;
 use gdbstub::target::TargetResult;
 
-impl target::ext::exec_file::ExecFile for Emu {
+// Fake path for the ELF that is on the target so GDB can remotely access it.
+pub const FAKE_ELF_FILENAME: &'static [u8; 9] = b"/test.elf";
+
+impl<A: RiscvArch> target::ext::exec_file::ExecFile for Machine<A> {
     fn get_exec_file(
         &self,
         _pid: Option<Pid>,
@@ -12,7 +17,6 @@ impl target::ext::exec_file::ExecFile for Emu {
         length: usize,
         buf: &mut [u8],
     ) -> TargetResult<usize, Self> {
-        let filename = b"/test.elf";
-        Ok(copy_range_to_buf(filename, offset, length, buf))
+        Ok(copy_range_to_buf(FAKE_ELF_FILENAME, offset, length, buf))
     }
 }

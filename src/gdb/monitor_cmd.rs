@@ -1,9 +1,12 @@
-use crate::gdb::Emu;
+use crate::gdb::Machine;
+use crate::riscv_arch::RiscvArch;
 use gdbstub::target;
-use gdbstub::target::ext::monitor_cmd::outputln;
 use gdbstub::target::ext::monitor_cmd::ConsoleOutput;
+use gdbstub::target::ext::monitor_cmd::outputln;
 
-impl target::ext::monitor_cmd::MonitorCmd for Emu {
+// See https://sourceware.org/gdb/current/onlinedocs/gdb.html/Server.html
+// I don't think we really need this.
+impl<A: RiscvArch> target::ext::monitor_cmd::MonitorCmd for Machine<A> {
     fn handle_monitor_cmd(
         &mut self,
         cmd: &[u8],

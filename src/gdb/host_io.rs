@@ -1,7 +1,8 @@
 use super::copy_range_to_buf;
 use super::copy_to_buf;
-use crate::emu::Emu;
-use crate::TEST_PROGRAM_ELF;
+use crate::gdb::exec_file::FAKE_ELF_FILENAME;
+use crate::machine::Machine;
+use crate::riscv_arch::RiscvArch;
 use gdbstub::target;
 use gdbstub::target::ext::host_io::FsKind;
 use gdbstub::target::ext::host_io::HostIoErrno;
@@ -16,7 +17,7 @@ use std::io::Write;
 
 const FD_RESERVED: u32 = 1;
 
-impl target::ext::host_io::HostIo for Emu {
+impl<A: RiscvArch> target::ext::host_io::HostIo for Machine<A> {
     #[inline(always)]
     fn support_open(&mut self) -> Option<target::ext::host_io::HostIoOpenOps<'_, Self>> {
         Some(self)
@@ -58,7 +59,7 @@ impl target::ext::host_io::HostIo for Emu {
     }
 }
 
-impl target::ext::host_io::HostIoOpen for Emu {
+impl<A: RiscvArch> target::ext::host_io::HostIoOpen for Machine<A> {
     fn open(
         &mut self,
         filename: &[u8],
@@ -73,7 +74,7 @@ impl target::ext::host_io::HostIoOpen for Emu {
         // `TEST_PROGRAM_ELF` array using `include_bytes!`. As such, we must "spoof" the
         // existence of a real file, which will actually be backed by the in-binary
         // `TEST_PROGRAM_ELF` array.
-        if filename == b"/test.elf" {
+        if filename == FAKE_ELF_FILENAME {
             return Ok(0);
         }
 
@@ -115,7 +116,7 @@ impl target::ext::host_io::HostIoOpen for Emu {
     }
 }
 
-impl target::ext::host_io::HostIoClose for Emu {
+impl<A: RiscvArch> target::ext::host_io::HostIoClose for Machine<A> {
     fn close(&mut self, fd: u32) -> HostIoResult<(), Self> {
         if fd < FD_RESERVED {
             return Ok(());
@@ -134,7 +135,7 @@ impl target::ext::host_io::HostIoClose for Emu {
     }
 }
 
-impl target::ext::host_io::HostIoPread for Emu {
+impl<A: RiscvArch> target::ext::host_io::HostIoPread for Machine<A> {
     fn pread<'a>(
         &mut self,
         fd: u32,
@@ -144,7 +145,7 @@ impl target::ext::host_io::HostIoPread for Emu {
     ) -> HostIoResult<usize, Self> {
         if fd < FD_RESERVED {
             if fd == 0 {
-                return Ok(copy_range_to_buf(TEST_PROGRAM_ELF, offset, count, buf));
+                return Ok(copy_range_to_buf(&self.elf, offset, count, buf));
             } else {
                 return Err(HostIoError::Errno(HostIoErrno::EBADF));
             }
@@ -161,8 +162,8 @@ impl target::ext::host_io::HostIoPread for Emu {
     }
 }
 
-impl target::ext::host_io::HostIoPwrite for Emu {
-    fn pwrite(&mut self, fd: u32, offset: u32, data: &[u8]) -> HostIoResult<u32, Self> {
+impl<A: RiscvArch> target::ext::host_io::HostIoPwrite for Machine<A> {
+    fn pwrite(&mut self, fd: u32, offset: u64, data: &[u8]) -> HostIoResult<u64, Self> {
         if fd < FD_RESERVED {
             return Err(HostIoError::Errno(HostIoErrno::EACCES));
         }
@@ -174,11 +175,11 @@ impl target::ext::host_io::HostIoPwrite for Emu {
 
         file.seek(std::io::SeekFrom::Start(offset as u64))?;
         let n = file.write(data)?;
-        Ok(n as u32)
+        Ok(n as u64)
     }
 }
 
-impl target::ext::host_io::HostIoFstat for Emu {
+impl<A: RiscvArch> target::ext::host_io::HostIoFstat for Machine<A> {
     fn fstat(&mut self, fd: u32) -> HostIoResult<HostIoStat, Self> {
         if fd < FD_RESERVED {
             if fd == 0 {
@@ -190,7 +191,7 @@ impl target::ext::host_io::HostIoFstat for Emu {
                     st_uid: 0,
                     st_gid: 0,
                     st_rdev: 0,
-                    st_size: TEST_PROGRAM_ELF.len() as u64,
+                    st_size: self.elf.len() as u64,
                     st_blksize: 0,
                     st_blocks: 0,
                     st_atime: 0,
@@ -237,7 +238,7 @@ impl target::ext::host_io::HostIoFstat for Emu {
     }
 }
 
-impl target::ext::host_io::HostIoUnlink for Emu {
+impl<A: RiscvArch> target::ext::host_io::HostIoUnlink for Machine<A> {
     fn unlink(&mut self, filename: &[u8]) -> HostIoResult<(), Self> {
         let path =
             std::str::from_utf8(filename).map_err(|_| HostIoError::Errno(HostIoErrno::ENOENT))?;
@@ -246,12 +247,11 @@ impl target::ext::host_io::HostIoUnlink for Emu {
     }
 }
 
-impl target::ext::host_io::HostIoReadlink for Emu {
+impl<A: RiscvArch> target::ext::host_io::HostIoReadlink for Machine<A> {
     fn readlink<'a>(&mut self, filename: &[u8], buf: &mut [u8]) -> HostIoResult<usize, Self> {
         if filename == b"/proc/1/exe" {
             // Support `info proc exe` command
-            let exe = b"/test.elf";
-            return Ok(copy_to_buf(exe, buf));
+            return Ok(copy_to_buf(FAKE_ELF_FILENAME, buf));
         } else if filename == b"/proc/1/cwd" {
             // Support `info proc cwd` command
             let cwd = b"/";
@@ -275,7 +275,7 @@ impl target::ext::host_io::HostIoReadlink for Emu {
     }
 }
 
-impl target::ext::host_io::HostIoSetfs for Emu {
+impl<A: RiscvArch> target::ext::host_io::HostIoSetfs for Machine<A> {
     fn setfs(&mut self, _fs: FsKind) -> HostIoResult<(), Self> {
         Ok(())
     }

@@ -1,9 +1,11 @@
-use crate::emu::Emu;
+use crate::machine::Machine;
+use crate::riscv_arch::RiscvArch;
+use gdbstub::arch::Arch;
 use gdbstub::target;
-use gdbstub::target::ext::breakpoints::WatchKind;
 use gdbstub::target::TargetResult;
+use gdbstub::target::ext::breakpoints::WatchKind;
 
-impl target::ext::breakpoints::Breakpoints for Emu {
+impl<A: RiscvArch> target::ext::breakpoints::Breakpoints for Machine<A> {
     #[inline(always)]
     fn support_sw_breakpoint(
         &mut self,
@@ -19,11 +21,11 @@ impl target::ext::breakpoints::Breakpoints for Emu {
     }
 }
 
-impl target::ext::breakpoints::SwBreakpoint for Emu {
+impl<A: RiscvArch> target::ext::breakpoints::SwBreakpoint for Machine<A> {
     fn add_sw_breakpoint(
         &mut self,
-        addr: u32,
-        _kind: gdbstub_arch::arm::ArmBreakpointKind,
+        addr: u64,
+        _kind: <gdbstub_arch::riscv::Riscv64 as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
         self.breakpoints.push(addr);
         Ok(true)
@@ -31,8 +33,8 @@ impl target::ext::breakpoints::SwBreakpoint for Emu {
 
     fn remove_sw_breakpoint(
         &mut self,
-        addr: u32,
-        _kind: gdbstub_arch::arm::ArmBreakpointKind,
+        addr: u64,
+        _kind: <gdbstub_arch::riscv::Riscv64 as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
         match self.breakpoints.iter().position(|x| *x == addr) {
             None => return Ok(false),
@@ -43,11 +45,11 @@ impl target::ext::breakpoints::SwBreakpoint for Emu {
     }
 }
 
-impl target::ext::breakpoints::HwWatchpoint for Emu {
+impl<A: RiscvArch> target::ext::breakpoints::HwWatchpoint for Machine<A> {
     fn add_hw_watchpoint(
         &mut self,
-        addr: u32,
-        len: u32,
+        addr: u64,
+        len: u64,
         kind: WatchKind,
     ) -> TargetResult<bool, Self> {
         for addr in addr..(addr + len) {
@@ -63,8 +65,8 @@ impl target::ext::breakpoints::HwWatchpoint for Emu {
 
     fn remove_hw_watchpoint(
         &mut self,
-        addr: u32,
-        len: u32,
+        addr: u64,
+        len: u64,
         kind: WatchKind,
     ) -> TargetResult<bool, Self> {
         for addr in addr..(addr + len) {

@@ -1,5 +1,5 @@
-use crate::gdb::custom_arch::ArmCoreRegIdCustom;
-use crate::gdb::Emu;
+
+use crate::gdb::Machine;
 use gdbstub::arch::lldb::Encoding;
 use gdbstub::arch::lldb::Format;
 use gdbstub::arch::lldb::Generic;
@@ -15,7 +15,7 @@ use gdbstub_arch::arm::reg::id::ArmCoreRegId;
 // Note: In this implementation, we have r0-pc from 0-16 but cpsr is at offset
 // 25*4 in the 'g'/'G' packets, so we add 8 padding registers here. Please see
 // gdbstub/examples/armv4t/gdb/target_description_xml_override.rs for more info.
-impl target::ext::lldb_register_info_override::LldbRegisterInfoOverride for Emu {
+impl target::ext::lldb_register_info_override::LldbRegisterInfoOverride for Machine {
     fn lldb_register_info<'a>(
         &mut self,
         reg_id: usize,

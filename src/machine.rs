@@ -1,82 +1,91 @@
+use crate::cpu::Cpu;
 use crate::mem_sniffer::AccessKind;
 use crate::mem_sniffer::MemSniffer;
-use crate::DynResult;
-use armv4t_emu::reg;
-use armv4t_emu::Cpu;
-use armv4t_emu::ExampleMem;
-use armv4t_emu::Memory;
-use armv4t_emu::Mode;
-use gdbstub::common::Pid;
+use crate::memory::Memory;
+use crate::memory::SimpleMemory;
+use crate::riscv_arch::RiscvArch;
+use crate::trace::RetireEvent;
+
+use anyhow::Context;
+use anyhow::Result;
+use anyhow::anyhow;
 use gdbstub::target::ext::tracepoints::NewTracepoint;
 use gdbstub::target::ext::tracepoints::SourceTracepoint;
 use gdbstub::target::ext::tracepoints::Tracepoint;
 use gdbstub::target::ext::tracepoints::TracepointAction;
 use gdbstub::target::ext::tracepoints::TracepointEnumerateState;
+use num_traits::FromPrimitive as _;
+use num_traits::ToPrimitive;
 use std::collections::BTreeMap;
-
-const HLE_RETURN_ADDR: u32 = 0x12345678;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Event {
     DoneStep,
     Halted,
     Break,
-    WatchWrite(u32),
-    WatchRead(u32),
+    WatchWrite(u64),
+    WatchRead(u64),
 }
 
 pub enum ExecMode {
     Step,
     Continue,
-    RangeStep(u32, u32),
+    RangeStep(u64, u64),
+}
+
+#[derive(Copy, Clone)]
+pub enum ExecDir {
+    Forwards,
+    Backwards,
 }
 
 #[derive(Debug)]
-pub struct TraceFrame {
+pub struct TraceFrame<A: RiscvArch> {
     pub number: Tracepoint,
-    pub snapshot: Cpu,
+    pub snapshot: Cpu<A::Usize>,
 }
 
-/// incredibly barebones armv4t-based emulator
-pub struct Emu {
-    start_addr: u32,
+/// "Emulator" for RISC-V trace file. It reconstructs registers and
+/// memory contents.
+pub struct Machine<A: RiscvArch> {
+    pub exec_mode: ExecMode,
+    pub exec_dir: ExecDir,
 
-    // example custom register. only read/written to from the GDB client
-    pub(crate) custom_reg: u32,
+    pub cpu: Cpu<A::Usize>,
+    pub mem: SimpleMemory,
 
-    pub(crate) exec_mode: ExecMode,
+    // The execution trace to use.
+    pub trace: Vec<RetireEvent<A::Usize>>,
+    pub trace_index: usize,
 
-    pub(crate) cpu: Cpu,
-    pub(crate) mem: ExampleMem,
+    // The ELF (needed so GDB can read it remotely).
+    pub elf: Vec<u8>,
 
-    pub(crate) watchpoints: Vec<u32>,
-    pub(crate) breakpoints: Vec<u32>,
-    pub(crate) files: Vec<Option<std::fs::File>>,
+    pub watchpoints: Vec<u64>,
+    pub breakpoints: Vec<u64>,
+    pub files: Vec<Option<std::fs::File>>,
 
-    pub(crate) tracepoints: BTreeMap<
+    pub tracepoints: BTreeMap<
         Tracepoint,
         (
-            NewTracepoint<u32>,
-            Vec<SourceTracepoint<'static, u32>>,
-            Vec<TracepointAction<'static, u32>>,
+            NewTracepoint<u64>,
+            Vec<SourceTracepoint<'static, u64>>,
+            Vec<TracepointAction<'static, u64>>,
         ),
     >,
-    pub(crate) traceframes: Vec<TraceFrame>,
-    pub(crate) tracepoint_enumerate_state: TracepointEnumerateState<u32>,
-    pub(crate) tracing: bool,
-    pub(crate) selected_frame: Option<usize>,
-
-    pub(crate) reported_pid: Pid,
+    pub traceframes: Vec<TraceFrame<A>>,
+    pub tracepoint_enumerate_state: TracepointEnumerateState<u64>,
+    pub tracing: bool,
+    pub selected_frame: Option<usize>,
 }
 
-impl Emu {
-    pub fn new(program_elf: &[u8]) -> DynResult<Emu> {
+impl<A: RiscvArch> Machine<A> {
+    pub fn new(elf: Vec<u8>, trace: Vec<RetireEvent<A::Usize>>) -> Result<Machine<A>> {
         // set up emulated system
-        let mut cpu = Cpu::new();
-        let mut mem = ExampleMem::new();
+        let mut cpu = Cpu::<A::Usize>::default();
+        let mut mem = SimpleMemory::default();
 
-        // load ELF
-        let elf_header = goblin::elf::Elf::parse(program_elf)?;
+        let elf_header = goblin::elf::Elf::parse(&elf)?;
 
         // copy all in-memory sections from the ELF file into system RAM
         let sections = elf_header
@@ -87,32 +96,44 @@ impl Emu {
         for h in sections {
             eprintln!(
                 "loading section {:?} into memory from [{:#010x?}..{:#010x?}]",
-                elf_header.shdr_strtab.get_at(h.sh_name).unwrap(),
+                elf_header
+                    .shdr_strtab
+                    .get_at(h.sh_name)
+                    .context("section name string access")?,
                 h.sh_addr,
                 h.sh_addr + h.sh_size,
             );
 
-            for (i, b) in program_elf[h.file_range().unwrap()].iter().enumerate() {
-                mem.w8(h.sh_addr as u32 + i as u32, *b);
+            for (i, b) in elf[h
+                .file_range()
+                .expect("No file range on section that isn't NOBITS")]
+            .iter()
+            .enumerate()
+            {
+                mem.w8(h.sh_addr + i as u64, *b);
             }
         }
 
         // setup execution state
         eprintln!("Setting PC to {:#010x?}", elf_header.entry);
-        cpu.reg_set(Mode::User, reg::SP, 0x10000000);
-        cpu.reg_set(Mode::User, reg::LR, HLE_RETURN_ADDR);
-        cpu.reg_set(Mode::User, reg::PC, elf_header.entry as u32);
-        cpu.reg_set(Mode::User, reg::CPSR, 0x10); // user mode
+        cpu.pc = A::Usize::from_u64(elf_header.entry).ok_or_else(|| {
+            anyhow!(
+                "Couldn't convert ELF entry point to usize: {:#x}",
+                elf_header.entry
+            )
+        })?;
 
-        Ok(Emu {
-            start_addr: elf_header.entry as u32,
-
-            custom_reg: 0x12345678,
-
+        Ok(Machine {
             exec_mode: ExecMode::Continue,
+            exec_dir: ExecDir::Forwards,
 
             cpu,
             mem,
+
+            elf,
+
+            trace,
+            trace_index: 0,
 
             watchpoints: Vec::new(),
             breakpoints: Vec::new(),
@@ -123,22 +144,13 @@ impl Emu {
             tracepoint_enumerate_state: Default::default(),
             tracing: false,
             selected_frame: None,
-
-            reported_pid: Pid::new(1).unwrap(),
         })
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.cpu.reg_set(Mode::User, reg::SP, 0x10000000);
-        self.cpu.reg_set(Mode::User, reg::LR, HLE_RETURN_ADDR);
-        self.cpu.reg_set(Mode::User, reg::PC, self.start_addr);
-        self.cpu.reg_set(Mode::User, reg::CPSR, 0x10);
     }
 
     /// single-step the interpreter
     pub fn step(&mut self) -> Option<Event> {
         if self.tracing {
-            let pc = self.cpu.reg_get(self.cpu.mode(), reg::PC);
+            let pc = self.cpu.pc.to_u64().expect("couldn't convert PC to u64");
             let frames: Vec<_> = self
                 .tracepoints
                 .iter()
@@ -150,7 +162,7 @@ impl Emu {
                     // all of them by cloning the cpu itself.
                     TraceFrame {
                         number: *tracepoint,
-                        snapshot: self.cpu,
+                        snapshot: self.cpu.clone(),
                     }
                 })
                 .collect();
@@ -163,12 +175,41 @@ impl Emu {
             hit_watchpoint = Some(access)
         });
 
-        self.cpu.step(&mut sniffer);
-        let pc = self.cpu.reg_get(Mode::User, reg::PC);
+        match self.exec_dir {
+            ExecDir::Forwards => {
+                if self.trace_index >= self.trace.len() {
+                    return Some(Event::Halted);
+                }
+                self.cpu
+                    .step(&mut sniffer, &mut self.trace[self.trace_index]);
+                self.trace_index += 1;
+            }
+            ExecDir::Backwards => {
+                if self.trace_index == 0 {
+                    // TODO: Double check this.
+                    return Some(Event::DoneStep);
+                }
+                self.trace_index -= 1;
+                let prev_event = if self.trace_index >= 1 && self.trace_index - 1 < self.trace.len()
+                {
+                    Some(&self.trace[self.trace_index - 1])
+                } else {
+                    None
+                };
+                self.cpu
+                    .step_undo(&mut sniffer, &self.trace[self.trace_index], prev_event);
+            }
+        }
 
         if let Some(access) = hit_watchpoint {
-            let fixup = if self.cpu.thumb_mode() { 2 } else { 4 };
-            self.cpu.reg_set(Mode::User, reg::PC, pc - fixup);
+            // TODO: I think this is setting PC back to the previous instruction,
+            // but do we need to actually reverse instruction too?
+            // Also seeing as we already know the access address I think we
+            // can just check in advance if we'll hit the watchpoints without
+            // even bothering with MemSniffer.
+
+            // let fixup = if self.cpu.thumb_mode() { 2 } else { 4 };
+            // self.cpu.pc = pc - fixup;
 
             return Some(match access.kind {
                 AccessKind::Read => Event::WatchRead(access.addr),
@@ -176,12 +217,10 @@ impl Emu {
             });
         }
 
+        let pc = self.cpu.pc.to_u64().expect("couldn't convert PC to u64");
+
         if self.breakpoints.contains(&pc) {
             return Some(Event::Break);
-        }
-
-        if pc == HLE_RETURN_ADDR {
-            return Some(Event::Halted);
         }
 
         None
@@ -227,7 +266,9 @@ impl Emu {
                         break RunEvent::Event(event);
                     };
 
-                    if !(start..end).contains(&self.cpu.reg_get(self.cpu.mode(), reg::PC)) {
+                    let pc = self.cpu.pc.to_u64().expect("couldn't convert PC to u64");
+
+                    if !(start..end).contains(&pc) {
                         break RunEvent::Event(Event::DoneStep);
                     }
                 }

@@ -1,31 +1,41 @@
-//! An incredibly simple emulator to run elf binaries compiled with
-//! `arm-none-eabi-cc -march=armv4t`. It's not modeled after any real-world
-//! system.
+//! A simple gdbserver implementation for RISC-V trace files.
 
+use anyhow::bail;
 use gdbstub::common::Signal;
 use gdbstub::conn::Connection;
 use gdbstub::conn::ConnectionExt;
-use gdbstub::stub::run_blocking;
 use gdbstub::stub::DisconnectReason;
 use gdbstub::stub::GdbStub;
 use gdbstub::stub::SingleThreadStopReason;
+use gdbstub::stub::run_blocking;
 use gdbstub::target::Target;
+use std::marker::PhantomData;
 use std::net::TcpListener;
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use std::path::Path;
 
-type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
+use anyhow::Result;
+use clap::Parser;
+use std::path::PathBuf;
 
-const TEST_PROGRAM_ELF: &[u8] = include_bytes!("test_bin/test.elf");
+use crate::riscv_arch::RiscvArch;
+use crate::riscv_arch::RiscvArch32;
+use crate::riscv_arch::RiscvArch64;
 
-mod emu;
+mod cpu;
 mod gdb;
+mod machine;
 mod mem_sniffer;
+mod memory;
+mod riscv_arch;
+mod trace;
 
-fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
+fn wait_for_tcp(port: u16) -> Result<TcpStream> {
     let sockaddr = format!("127.0.0.1:{}", port);
     eprintln!("Waiting for a GDB connection on {:?}...", sockaddr);
 
@@ -37,7 +47,7 @@ fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
 }
 
 #[cfg(unix)]
-fn wait_for_uds(path: &str) -> DynResult<UnixStream> {
+fn wait_for_uds(path: &Path) -> Result<UnixStream> {
     match std::fs::remove_file(path) {
         Ok(_) => {}
         Err(e) => match e.kind() {
@@ -46,7 +56,7 @@ fn wait_for_uds(path: &str) -> DynResult<UnixStream> {
         },
     }
 
-    eprintln!("Waiting for a GDB connection on {}...", path);
+    eprintln!("Waiting for a GDB connection on {}...", path.display());
 
     let sock = UnixListener::bind(path)?;
     let (stream, addr) = sock.accept()?;
@@ -55,19 +65,21 @@ fn wait_for_uds(path: &str) -> DynResult<UnixStream> {
     Ok(stream)
 }
 
-enum EmuGdbEventLoop {}
+struct TraceGdbEventLoop<A: RiscvArch> {
+    _phantom: PhantomData<A>,
+}
 
-impl run_blocking::BlockingEventLoop for EmuGdbEventLoop {
-    type Target = emu::Emu;
+impl<A: RiscvArch> run_blocking::BlockingEventLoop for TraceGdbEventLoop<A> {
+    type Target = machine::Machine<A>;
     type Connection = Box<dyn ConnectionExt<Error = std::io::Error>>;
-    type StopReason = SingleThreadStopReason<u32>;
+    type StopReason = SingleThreadStopReason<u64>;
 
     #[allow(clippy::type_complexity)]
     fn wait_for_stop_reason(
-        target: &mut emu::Emu,
+        target: &mut machine::Machine<A>,
         conn: &mut Self::Connection,
     ) -> Result<
-        run_blocking::Event<SingleThreadStopReason<u32>>,
+        run_blocking::Event<SingleThreadStopReason<u64>>,
         run_blocking::WaitForStopReasonError<
             <Self::Target as Target>::Error,
             <Self::Connection as Connection>::Error,
@@ -95,34 +107,29 @@ impl run_blocking::BlockingEventLoop for EmuGdbEventLoop {
         // - Running the target + stopping every so often to peek the connection
         // - Driving `GdbStub` from various interrupt handlers
 
-        let poll_incoming_data = || {
-            // gdbstub takes ownership of the underlying connection, so the `borrow_conn`
-            // method is used to borrow the underlying connection back from the stub to
-            // check for incoming data.
-            conn.peek().map(|b| b.is_some()).unwrap_or(true)
-        };
+        let poll_incoming_data = || conn.peek().map(|b| b.is_some()).unwrap_or(true);
 
         match target.run(poll_incoming_data) {
-            emu::RunEvent::IncomingData => {
+            machine::RunEvent::IncomingData => {
                 let byte = conn
                     .read()
                     .map_err(run_blocking::WaitForStopReasonError::Connection)?;
                 Ok(run_blocking::Event::IncomingData(byte))
             }
-            emu::RunEvent::Event(event) => {
+            machine::RunEvent::Event(event) => {
                 use gdbstub::target::ext::breakpoints::WatchKind;
 
                 // translate emulator stop reason into GDB stop reason
                 let stop_reason = match event {
-                    emu::Event::DoneStep => SingleThreadStopReason::DoneStep,
-                    emu::Event::Halted => SingleThreadStopReason::Terminated(Signal::SIGSTOP),
-                    emu::Event::Break => SingleThreadStopReason::SwBreak(()),
-                    emu::Event::WatchWrite(addr) => SingleThreadStopReason::Watch {
+                    machine::Event::DoneStep => SingleThreadStopReason::DoneStep,
+                    machine::Event::Halted => SingleThreadStopReason::Terminated(Signal::SIGSTOP),
+                    machine::Event::Break => SingleThreadStopReason::SwBreak(()),
+                    machine::Event::WatchWrite(addr) => SingleThreadStopReason::Watch {
                         tid: (),
                         kind: WatchKind::Write,
                         addr,
                     },
-                    emu::Event::WatchRead(addr) => SingleThreadStopReason::Watch {
+                    machine::Event::WatchRead(addr) => SingleThreadStopReason::Watch {
                         tid: (),
                         kind: WatchKind::Read,
                         addr,
@@ -134,44 +141,79 @@ impl run_blocking::BlockingEventLoop for EmuGdbEventLoop {
         }
     }
 
+    // Called when Ctrl-C is sent to GDB. We can just exit.
     fn on_interrupt(
-        _target: &mut emu::Emu,
-    ) -> Result<Option<SingleThreadStopReason<u32>>, <emu::Emu as Target>::Error> {
-        // Because this emulator runs as part of the GDB stub loop, there isn't any
-        // special action that needs to be taken to interrupt the underlying target. It
-        // is implicitly paused whenever the stub isn't within the
-        // `wait_for_stop_reason` callback.
+        _target: &mut machine::Machine<A>,
+    ) -> Result<Option<SingleThreadStopReason<u64>>, <machine::Machine<A> as Target>::Error> {
         Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
     }
 }
 
-fn main() -> DynResult<()> {
-    // pretty_env_logger::init();
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Args {
+    /// Use UNIX domain socket instead of TCP.
+    #[arg(long, value_name = "SOCKET_PATH")]
+    uds: Option<PathBuf>,
 
-    let mut emu = emu::Emu::new(TEST_PROGRAM_ELF)?;
+    /// Path to the ELF file
+    #[arg(long, value_name = "ELF_PATH")]
+    elf: PathBuf,
 
-    let connection: Box<dyn ConnectionExt<Error = std::io::Error>> = {
-        if std::env::args().nth(1) == Some("--uds".to_string()) {
+    /// Path to the trace file
+    #[arg(long, value_name = "TRACE_FILE")]
+    trace: PathBuf,
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    let elf = std::fs::read(&args.elf)?;
+
+    let elf_header = goblin::elf::Elf::parse(&elf)?;
+
+    if !elf_header.little_endian {
+        bail!(
+            "ELF is Big Endian. Either something has gone horribly wrong and the file is corrupted or something has gone horribly wrong and you're using Big Endian in the 21st century."
+        );
+    }
+    // Apparently this isn't a reliable check?
+
+    // if !elf_header.header.e_machine != goblin::elf::header::EM_RISCV {
+    //     bail!("Not a RISC-V ELF");
+    // }
+
+    if elf_header.is_64 {
+        main_impl::<RiscvArch32>(args, elf)
+    } else {
+        main_impl::<RiscvArch64>(args, elf)
+    }
+}
+
+fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
+    let trace = trace::read_trace(&args.trace)?;
+
+    let mut machine = machine::Machine::new(elf, trace)?;
+
+    let connection: Box<dyn ConnectionExt<Error = std::io::Error>> = match args.uds {
+        Some(uds_path) => {
             #[cfg(not(unix))]
             {
                 return Err("Unix Domain Sockets can only be used on Unix".into());
             }
             #[cfg(unix)]
             {
-                Box::new(wait_for_uds("/tmp/armv4t_gdb")?)
+                Box::new(wait_for_uds(&uds_path)?)
             }
-        } else {
-            Box::new(wait_for_tcp(9001)?)
         }
+        None => Box::new(wait_for_tcp(9001)?),
     };
 
     let gdb = GdbStub::new(connection);
 
-    match gdb.run_blocking::<EmuGdbEventLoop>(&mut emu) {
+    match gdb.run_blocking::<TraceGdbEventLoop<A>>(&mut machine) {
         Ok(disconnect_reason) => match disconnect_reason {
             DisconnectReason::Disconnect => {
-                println!("GDB client has disconnected. Running to completion...");
-                while emu.step() != Some(emu::Event::Halted) {}
+                println!("GDB client has disconnected. Exiting...");
             }
             DisconnectReason::TargetExited(code) => {
                 println!("Target exited with code {}!", code)
@@ -195,9 +237,6 @@ fn main() -> DynResult<()> {
             }
         }
     }
-
-    let ret = emu.cpu.reg_get(armv4t_emu::Mode::User, 0);
-    println!("Program completed. Return value: {}", ret);
 
     Ok(())
 }
