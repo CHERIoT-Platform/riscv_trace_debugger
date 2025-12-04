@@ -7,7 +7,7 @@ use gdbstub::target;
 use gdbstub::target::TargetResult;
 
 // Fake path for the ELF that is on the target so GDB can remotely access it.
-pub const FAKE_ELF_FILENAME: &'static [u8; 9] = b"/test.elf";
+pub const FAKE_ELF_FILENAME: &[u8; 9] = b"/test.elf";
 
 impl<A: RiscvArch> target::ext::exec_file::ExecFile for Machine<A> {
     fn get_exec_file(

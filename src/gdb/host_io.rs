@@ -173,7 +173,7 @@ impl<A: RiscvArch> target::ext::host_io::HostIoPwrite for Machine<A> {
             _ => return Err(HostIoError::Errno(HostIoErrno::EBADF)),
         };
 
-        file.seek(std::io::SeekFrom::Start(offset as u64))?;
+        file.seek(std::io::SeekFrom::Start(offset))?;
         let n = file.write(data)?;
         Ok(n as u64)
     }
