@@ -85,28 +85,8 @@ impl<A: RiscvArch> run_blocking::BlockingEventLoop for TraceGdbEventLoop<A> {
             <Self::Connection as Connection>::Error,
         >,
     > {
-        // The `armv4t` example runs the emulator in the same thread as the GDB state
-        // machine loop. As such, it uses a simple poll-based model to check for
-        // interrupt events, whereby the emulator will check if there is any incoming
-        // data over the connection, and pause execution with a synthetic
-        // `RunEvent::IncomingData` event.
-        //
-        // In more complex integrations, the target will probably be running in a
-        // separate thread, and instead of using a poll-based model to check for
-        // incoming data, you'll want to use some kind of "select" based model to
-        // simultaneously wait for incoming GDB data coming over the connection, along
-        // with any target-reported stop events.
-        //
-        // The specifics of how this "select" mechanism work + how the target reports
-        // stop events will entirely depend on your project's architecture.
-        //
-        // Some ideas on how to implement this `select` mechanism:
-        //
-        // - A mpsc channel
-        // - epoll/kqueue
-        // - Running the target + stopping every so often to peek the connection
-        // - Driving `GdbStub` from various interrupt handlers
-
+        // We can use the same poll-based model to check for interrupt events
+        // as gdbstub's `armv4t` example. See that example for a more detailed comment.
         let poll_incoming_data = || conn.peek().map(|b| b.is_some()).unwrap_or(true);
 
         match target.run(poll_incoming_data) {
