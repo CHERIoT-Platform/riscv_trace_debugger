@@ -47,9 +47,16 @@ When you start that debugging session it should connect to `riscv_trace_debugger
 
 There are some known bugs/issues:
 
-2. No CHERI support. I'm not sure if it is possible to display capability registers in the debugger, but we at least need capability stores to work correctly so that memory doesn't get out of sync.
-3. For some reason as soon as you start reverse debugging it switches to a disassembly view rather than staying in the source code view.
-4. The Ibex trace doesn't tell you the size of a memory access, so any non-32-bit accesses will break things currently.
-5. Registers are shown as 64-bit even on RV32. Probably need some XML config or something.
-6. The Ibex trace format doesn't record traps, so you can't break on trap; instead it will just magically jump to the trap handler. You can put a breakpoint in the trap handler though.
-7. No support for float or vector registers.
+1. CHERI mostly ignores tags and metadata. I'm not sure if it is possible to display capability registers in the debugger.
+2. LLDB doesn't support reverse debugging properly so if you use it it switches to disassembly view unfortunately.
+3. The Ibex trace doesn't tell you the size of a memory access, so any non-32-bit accesses will break things currently.
+4. Registers are shown as 64-bit even on RV32. Probably need some XML config or something.
+5. The Ibex trace format doesn't record traps, so you can't break on trap; instead it will just magically jump to the trap handler. You can put a breakpoint in the trap handler though.
+6. No support for float or vector registers.
+
+## Building
+
+Set up Rust in the usual way, then I recommend building a fully static binary with Musl:
+
+    rustup target add x86_64-unknown-linux-musl
+    cargo build --release --target=x86_64-unknown-linux-musl
