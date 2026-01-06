@@ -33,15 +33,14 @@ fn read_line<Usize: Num>(line: &str) -> Result<TraceEvent<Usize>> {
     let time_str = parts[0].trim();
     let cycle_str = parts[1].trim();
     let pc_str = parts[2];
-    let instruction_str = parts[3];
+    let instruction_str = parts[3].trim();
 
     let time =
         u64::from_str_radix(time_str, 10).with_context(|| format!("parsing {time_str:?}"))?;
     let cycle =
         u64::from_str_radix(cycle_str, 10).with_context(|| format!("parsing {cycle_str:?}"))?;
-    let pc = Usize::from_str_radix(pc_str, 16).map_err(|_| anyhow!("parsing {pc_str:?}"))?;
-    let instruction = u32::from_str_radix(instruction_str, 16)
-        .with_context(|| format!("parsing {instruction_str:?}"))?;
+    let pc = parse_hex(pc_str)?;
+    let instruction = parse_hex(instruction_str)?;
 
     let assembly_mnemonic = parts.get(4).map(|s| s.to_owned());
     let assembly_args = parts.get(5).map(|s| s.to_owned());

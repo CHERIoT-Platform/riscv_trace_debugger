@@ -22,7 +22,7 @@ fn read_line<Usize: Num>(line: &str) -> Result<TraceEvent<Usize>> {
     let time_str = parts[0].trim();
     let cycle_str = parts[1].trim();
     let pc_str = parts[2];
-    let instruction_str = parts[3];
+    let instruction_str = parts[3].trim();
 
     let time =
         u64::from_str_radix(time_str, 10).with_context(|| format!("parsing {time_str:?}"))?;
