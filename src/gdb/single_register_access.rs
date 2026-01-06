@@ -2,7 +2,7 @@ use gdbstub::internal::LeBytes;
 use gdbstub::target::{self, TargetResult};
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
-use crate::{cpu::Privilege, machine::Machine, riscv_arch::RiscvArch};
+use crate::{cpu::Privilege, machine::Machine, riscv::RiscvArch};
 
 impl<A: RiscvArch> target::ext::base::single_register_access::SingleRegisterAccess<()>
     for Machine<A>

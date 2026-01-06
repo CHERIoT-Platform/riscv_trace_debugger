@@ -1,5 +1,15 @@
 //! A simple gdbserver implementation for RISC-V trace files.
 
+mod cheriot_ibex_trace;
+mod cpu;
+mod gdb;
+mod ibex_trace;
+mod machine;
+mod mem_sniffer;
+mod memory;
+mod riscv;
+mod trace;
+
 use anyhow::bail;
 use gdbstub::common::Signal;
 use gdbstub::conn::Connection;
@@ -23,19 +33,9 @@ use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
 
-use crate::riscv_arch::RiscvArch;
-use crate::riscv_arch::RiscvArch32;
-use crate::riscv_arch::RiscvArch64;
-
-mod cheriot_ibex_trace;
-mod cpu;
-mod gdb;
-mod ibex_trace;
-mod machine;
-mod mem_sniffer;
-mod memory;
-mod riscv_arch;
-mod trace;
+use crate::riscv::RiscvArch;
+use crate::riscv::RiscvArch32;
+use crate::riscv::RiscvArch64;
 
 fn wait_for_tcp(port: u16) -> Result<TcpStream> {
     let sockaddr = format!("127.0.0.1:{}", port);

@@ -1,5 +1,5 @@
 use crate::gdb::Machine;
-use crate::riscv_arch::RiscvArch;
+use crate::riscv::RiscvArch;
 use gdbstub::target;
 use gdbstub::target::ext::monitor_cmd::ConsoleOutput;
 use gdbstub::target::ext::monitor_cmd::outputln;

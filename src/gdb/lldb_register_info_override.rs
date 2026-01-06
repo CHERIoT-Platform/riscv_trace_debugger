@@ -1,8 +1,7 @@
-
 use std::num::NonZeroUsize;
 
 use crate::gdb::Machine;
-use crate::riscv_arch::RiscvArch;
+use crate::riscv::RiscvArch;
 use gdbstub::arch::lldb::Encoding;
 use gdbstub::arch::lldb::Format;
 use gdbstub::arch::lldb::Register;
@@ -26,7 +25,9 @@ fn riscv_regid_from_raw_id<U>(id: usize) -> Option<(RiscvRegId<U>, Option<NonZer
     Some((id, Some(NonZeroUsize::new(size)?)))
 }
 
-impl<A: RiscvArch> target::ext::lldb_register_info_override::LldbRegisterInfoOverride for Machine<A> {
+impl<A: RiscvArch> target::ext::lldb_register_info_override::LldbRegisterInfoOverride
+    for Machine<A>
+{
     fn lldb_register_info<'a>(
         &mut self,
         reg_id: usize,

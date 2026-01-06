@@ -1,7 +1,7 @@
 use crate::machine::ExecMode;
 use crate::machine::Machine;
 use crate::memory::Memory as _;
-use crate::riscv_arch::RiscvArch;
+use crate::riscv::RiscvArch;
 use gdbstub::arch::Arch;
 use gdbstub::common::Signal;
 use gdbstub::target;

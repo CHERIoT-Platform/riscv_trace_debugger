@@ -2,7 +2,7 @@ use gdbstub::{common::Signal, target};
 
 use crate::{
     machine::{ExecDir, ExecMode, Machine},
-    riscv_arch::RiscvArch,
+    riscv::RiscvArch,
 };
 
 impl<A: RiscvArch> target::ext::base::singlethread::SingleThreadSingleStep for Machine<A> {

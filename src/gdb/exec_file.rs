@@ -1,5 +1,5 @@
 use crate::machine::Machine;
-use crate::riscv_arch::RiscvArch;
+use crate::riscv::RiscvArch;
 
 use super::copy_range_to_buf;
 use gdbstub::common::Pid;

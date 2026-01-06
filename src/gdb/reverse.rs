@@ -2,7 +2,7 @@ use gdbstub::target;
 
 use crate::{
     machine::{ExecDir, ExecMode, Machine},
-    riscv_arch::RiscvArch,
+    riscv::RiscvArch,
 };
 
 // Reverse debugging support

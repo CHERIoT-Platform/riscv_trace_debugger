@@ -3,7 +3,7 @@ use crate::mem_sniffer::AccessKind;
 use crate::mem_sniffer::MemSniffer;
 use crate::memory::Memory;
 use crate::memory::SimpleMemory;
-use crate::riscv_arch::RiscvArch;
+use crate::riscv::RiscvArch;
 use crate::trace::RetireEvent;
 
 use anyhow::Context;

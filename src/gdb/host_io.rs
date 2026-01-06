@@ -2,7 +2,7 @@ use super::copy_range_to_buf;
 use super::copy_to_buf;
 use crate::gdb::exec_file::FAKE_ELF_FILENAME;
 use crate::machine::Machine;
-use crate::riscv_arch::RiscvArch;
+use crate::riscv::RiscvArch;
 use gdbstub::target;
 use gdbstub::target::ext::host_io::FsKind;
 use gdbstub::target::ext::host_io::HostIoErrno;

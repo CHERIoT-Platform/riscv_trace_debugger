@@ -1,5 +1,5 @@
 use crate::machine::Machine;
-use crate::riscv_arch::RiscvArch;
+use crate::riscv::RiscvArch;
 use gdbstub::target;
 use gdbstub::target::TargetError;
 use gdbstub::target::TargetResult;
