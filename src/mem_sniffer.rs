@@ -71,8 +71,10 @@ impl<M: Memory, F: FnMut(Access)> Memory for MemSniffer<'_, M, F> {
     impl_memsniff_r!(r16, u16);
     impl_memsniff_r!(r32, u32);
     impl_memsniff_r!(r64, u64);
+    impl_memsniff_r!(r128, u128);
     impl_memsniff_w!(w8, u8);
     impl_memsniff_w!(w16, u16);
     impl_memsniff_w!(w32, u32);
     impl_memsniff_w!(w64, u64);
+    impl_memsniff_w!(w128, u128);
 }

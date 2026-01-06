@@ -30,4 +30,6 @@ pub enum Data {
     U16(u16),
     U32(u32),
     U64(u64),
+    // Needed for CHERI on RV64. And I guess some atomics/F128 etc.
+    U128(u128),
 }

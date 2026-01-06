@@ -58,6 +58,10 @@ impl<Usize: Num + Copy> Cpu<Usize> {
                     store.prev_value = Some(Data::U64(mem.r64(store.phys_addr)));
                     mem.w64(store.phys_addr, val);
                 }
+                Data::U128(val) => {
+                    store.prev_value = Some(Data::U128(mem.r128(store.phys_addr)));
+                    mem.w128(store.phys_addr, val);
+                }
             }
         }
     }
@@ -96,6 +100,9 @@ impl<Usize: Num + Copy> Cpu<Usize> {
                 }
                 Data::U64(val) => {
                     mem.w64(store.phys_addr, *val);
+                }
+                Data::U128(val) => {
+                    mem.w128(store.phys_addr, *val);
                 }
             }
         }

@@ -93,6 +93,8 @@ impl<A: RiscvArch> Machine<A> {
             .iter()
             .filter(|h| h.is_alloc() && h.sh_type != goblin::elf::section_header::SHT_NOBITS);
 
+        // TODO: Initialise tags.
+
         for h in sections {
             eprintln!(
                 "loading section {:?} into memory from [{:#010x?}..{:#010x?}]",
