@@ -4,7 +4,7 @@ use num_traits::Num;
 
 use crate::{
     memory::Memory,
-    trace::{Data, RetireEvent},
+    trace::{Data, TraceEvent},
 };
 
 #[derive(Debug, Default, Clone)]
@@ -30,7 +30,7 @@ pub struct Cpu<Usize: Num> {
 
 impl<Usize: Num + Copy> Cpu<Usize> {
     // Perform a trace step, and fill in the previous values in the event.
-    pub fn step(&mut self, mem: &mut impl Memory, event: &mut RetireEvent<Usize>) {
+    pub fn step(&mut self, mem: &mut impl Memory, event: &mut TraceEvent<Usize>) {
         self.pc = event.pc;
 
         // X register write.
@@ -70,8 +70,8 @@ impl<Usize: Num + Copy> Cpu<Usize> {
     pub fn step_undo(
         &mut self,
         mem: &mut impl Memory,
-        event: &RetireEvent<Usize>,
-        prev_event: Option<&RetireEvent<Usize>>,
+        event: &TraceEvent<Usize>,
+        prev_event: Option<&TraceEvent<Usize>>,
     ) {
         if let Some(prev_event) = prev_event {
             self.pc = prev_event.pc;

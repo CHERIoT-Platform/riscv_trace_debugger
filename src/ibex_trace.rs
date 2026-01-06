@@ -7,9 +7,9 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use num_traits::Num;
 
-use crate::trace::{Data, MemWrite, RetireEvent, XRegWrite};
+use crate::trace::{Data, MemWrite, TraceEvent, XRegWrite};
 
-fn read_line<Usize: Num>(line: &str) -> Result<RetireEvent<Usize>> {
+fn read_line<Usize: Num>(line: &str) -> Result<TraceEvent<Usize>> {
     let parts: Vec<&str> = line.split('\t').collect();
 
     if parts.len() < 4 {
@@ -122,11 +122,12 @@ fn read_line<Usize: Num>(line: &str) -> Result<RetireEvent<Usize>> {
         (Some(_), None) => bail!("Store without PA"),
     };
 
-    Ok(RetireEvent {
+    Ok(TraceEvent {
         time,
         cycle,
         pc,
-        instruction,
+        trap: false,
+        instruction: Some(instruction),
         assembly_mnemonic: assembly_mnemonic.unwrap_or_default().to_owned(),
         assembly_args: assembly_args.unwrap_or_default().to_owned(),
         xwrite,
@@ -134,7 +135,7 @@ fn read_line<Usize: Num>(line: &str) -> Result<RetireEvent<Usize>> {
     })
 }
 
-pub fn read_trace<Usize: Num>(file_path: &Path) -> Result<Vec<RetireEvent<Usize>>> {
+pub fn read_trace<Usize: Num>(file_path: &Path) -> Result<Vec<TraceEvent<Usize>>> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 

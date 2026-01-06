@@ -1,9 +1,12 @@
 #[derive(Clone)]
-pub struct RetireEvent<Usize> {
+pub struct TraceEvent<Usize> {
     pub time: u64,
     pub cycle: u64,
     pub pc: Usize,
-    pub instruction: u32,
+    pub trap: bool,
+    // Instructions are optional; they aren't always known if there is a trap
+    // e.g. a fetch exception.
+    pub instruction: Option<u32>,
     pub assembly_mnemonic: String,
     pub assembly_args: String,
     pub xwrite: Option<XRegWrite<Usize>>,

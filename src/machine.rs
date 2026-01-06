@@ -4,7 +4,7 @@ use crate::mem_sniffer::MemSniffer;
 use crate::memory::Memory;
 use crate::memory::SimpleMemory;
 use crate::riscv::RiscvArch;
-use crate::trace::RetireEvent;
+use crate::trace::TraceEvent;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -55,7 +55,7 @@ pub struct Machine<A: RiscvArch> {
     pub mem: SimpleMemory,
 
     // The execution trace to use.
-    pub trace: Vec<RetireEvent<A::Usize>>,
+    pub trace: Vec<TraceEvent<A::Usize>>,
     pub trace_index: usize,
 
     // The ELF (needed so GDB can read it remotely).
@@ -80,7 +80,7 @@ pub struct Machine<A: RiscvArch> {
 }
 
 impl<A: RiscvArch> Machine<A> {
-    pub fn new(elf: Vec<u8>, trace: Vec<RetireEvent<A::Usize>>) -> Result<Machine<A>> {
+    pub fn new(elf: Vec<u8>, trace: Vec<TraceEvent<A::Usize>>) -> Result<Machine<A>> {
         // set up emulated system
         let mut cpu = Cpu::<A::Usize>::default();
         let mut mem = SimpleMemory::default();
