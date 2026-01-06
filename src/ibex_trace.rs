@@ -83,25 +83,34 @@ fn read_line<Usize: Num>(line: &str) -> Result<RetireEvent<Usize>> {
             // Fortunately all loads and stores supported by Ibex have
             // their width in the same place - bits [12,13].
 
-            let value = match (instruction >> 12) & 0b11 {
-                0 => Data::U8(
-                    val.try_into()
-                        .with_context(|| format!("parsing {val:#x} into 8 bits"))?,
-                ),
-                1 => Data::U16(
-                    val.try_into()
-                        .with_context(|| format!("parsing {val:#x} into 16 bits"))?,
-                ),
-                2 => Data::U32(
-                    val.try_into()
-                        .with_context(|| format!("parsing {val:#x} into 32 bits"))?,
-                ),
-                3 => Data::U64(
-                    val.try_into()
-                        .with_context(|| format!("parsing {val:#x} into 64 bits"))?,
-                ),
-                _ => unreachable!(),
-            };
+            // TODO: It's actually more complex than this; I forgot about
+            // float and also there are compressed instructions like c.swsp.
+            // Assume 32-bits for now.
+
+            // let value = match (instruction >> 12) & 0b11 {
+            //     0 => Data::U8(
+            //         val.try_into()
+            //             .with_context(|| format!("parsing {val:#x} into 8 bits"))?,
+            //     ),
+            //     1 => Data::U16(
+            //         val.try_into()
+            //             .with_context(|| format!("parsing {val:#x} into 16 bits"))?,
+            //     ),
+            //     2 => Data::U32(
+            //         val.try_into()
+            //             .with_context(|| format!("parsing {val:#x} into 32 bits"))?,
+            //     ),
+            //     3 => Data::U64(
+            //         val.try_into()
+            //             .with_context(|| format!("parsing {val:#x} into 64 bits"))?,
+            //     ),
+            //     _ => unreachable!(),
+            // };
+
+            let value = Data::U32(
+                val.try_into()
+                    .with_context(|| format!("parsing {val:#x} into 32 bits"))?,
+            );
 
             Some(MemWrite {
                 phys_addr,
