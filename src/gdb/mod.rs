@@ -17,14 +17,13 @@ use gdbstub_arch::riscv::Riscv64;
 mod breakpoints;
 mod exec_file;
 mod host_io;
+mod lldb_register_info_override;
 mod monitor_cmd;
 mod reverse;
 mod single_register_access;
 mod single_thread_range_step;
 mod single_thread_single_step;
 mod tracepoints;
-
-// mod lldb_register_info_override;
 
 /// Copy all bytes of `data` to `buf`.
 /// Return the size of data copied.
@@ -80,9 +79,7 @@ impl<A: RiscvArch> Target for Machine<A> {
     // #[inline(always)]
     // fn support_lldb_register_info_override(
     //     &mut self,
-    // ) -> Option<target::ext::lldb_register_info_override::LldbRegisterInfoOverrideOps<'_, Self>>
-    // {
-    //     // TODO: Not sure what this is.
+    // ) -> Option<target::ext::lldb_register_info_override::LldbRegisterInfoOverrideOps<'_, Self>> {
     //     Some(self)
     // }
 
