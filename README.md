@@ -16,7 +16,7 @@ Currently you need to build from source, e.g. `cargo install --path .`.
 
 First run something like this:
 
-    riscv_trace_debugger --elf hello_world.elf --trace trace.log
+    riscv_trace_debugger --elf hello_world.elf --ibex-trace trace.log
 
 It will print something like this:
 

@@ -27,8 +27,10 @@ use crate::riscv_arch::RiscvArch;
 use crate::riscv_arch::RiscvArch32;
 use crate::riscv_arch::RiscvArch64;
 
+mod cheriot_ibex_trace;
 mod cpu;
 mod gdb;
+mod ibex_trace;
 mod machine;
 mod mem_sniffer;
 mod memory;
@@ -140,9 +142,13 @@ struct Args {
     #[arg(long, value_name = "ELF_PATH")]
     elf: PathBuf,
 
-    /// Path to the trace file
+    /// Path to a vanilla Ibex trace file.
     #[arg(long, value_name = "TRACE_FILE")]
-    trace: PathBuf,
+    ibex_trace: Option<PathBuf>,
+
+    /// Path to a Cheriot-Ibex trace file.
+    #[arg(long, value_name = "TRACE_FILE")]
+    cheriot_ibex_trace: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -170,7 +176,11 @@ fn main() -> Result<()> {
 }
 
 fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
-    let trace = trace::read_trace(&args.trace)?;
+    let trace = match (args.ibex_trace, args.cheriot_ibex_trace) {
+        (Some(path), None) => ibex_trace::read_trace(&path),
+        (None, Some(path)) => cheriot_ibex_trace::read_trace(&path),
+        _ => bail!("Please provide exactly one trace file."),
+    }?;
 
     let mut machine = machine::Machine::new(elf, trace)?;
 
