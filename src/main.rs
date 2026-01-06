@@ -182,48 +182,58 @@ fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
         _ => bail!("Please provide exactly one trace file."),
     }?;
 
-    let mut machine = machine::Machine::new(elf, trace)?;
+    let mut done = false;
 
-    let connection: Box<dyn ConnectionExt<Error = std::io::Error>> = match args.uds {
-        Some(uds_path) => {
-            #[cfg(not(unix))]
-            {
-                return Err("Unix Domain Sockets can only be used on Unix".into());
-            }
-            #[cfg(unix)]
-            {
-                Box::new(wait_for_uds(&uds_path)?)
-            }
-        }
-        None => Box::new(wait_for_tcp(9001)?),
-    };
+    while !done {
+        done = true;
 
-    let gdb = GdbStub::new(connection);
+        let mut machine = machine::Machine::new(elf.clone(), trace.clone())?;
 
-    match gdb.run_blocking::<TraceGdbEventLoop<A>>(&mut machine) {
-        Ok(disconnect_reason) => match disconnect_reason {
-            DisconnectReason::Disconnect => {
-                println!("GDB client has disconnected. Exiting...");
+        let connection: Box<dyn ConnectionExt<Error = std::io::Error>> = match &args.uds {
+            Some(uds_path) => {
+                #[cfg(not(unix))]
+                {
+                    return Err("Unix Domain Sockets can only be used on Unix".into());
+                }
+                #[cfg(unix)]
+                {
+                    Box::new(wait_for_uds(uds_path)?)
+                }
             }
-            DisconnectReason::TargetExited(code) => {
-                println!("Target exited with code {}!", code)
-            }
-            DisconnectReason::TargetTerminated(sig) => {
-                println!("Target terminated with signal {}!", sig)
-            }
-            DisconnectReason::Kill => println!("GDB sent a kill command!"),
-        },
-        Err(e) => {
-            if e.is_target_error() {
-                println!(
-                    "target encountered a fatal error: {}",
-                    e.into_target_error().unwrap()
-                )
-            } else if e.is_connection_error() {
-                let (e, kind) = e.into_connection_error().unwrap();
-                println!("connection error: {:?} - {}", kind, e,)
-            } else {
-                println!("gdbstub encountered a fatal error: {}", e)
+            None => Box::new(wait_for_tcp(9001)?),
+        };
+
+        let gdb = GdbStub::new(connection);
+
+        match gdb.run_blocking::<TraceGdbEventLoop<A>>(&mut machine) {
+            Ok(disconnect_reason) => match disconnect_reason {
+                // VSCode's "Restart" is really disconnect and reattach
+                // for remote connections. In that case we'll just start from
+                // scratch so it really is like restarting. Bit of a hack but eh.
+                DisconnectReason::Disconnect => {
+                    println!("GDB client has disconnected. Restarting...");
+                    done = false;
+                }
+                DisconnectReason::TargetExited(code) => {
+                    println!("Target exited with code {}!", code)
+                }
+                DisconnectReason::TargetTerminated(sig) => {
+                    println!("Target terminated with signal {}!", sig)
+                }
+                DisconnectReason::Kill => println!("GDB sent a kill command!"),
+            },
+            Err(e) => {
+                if e.is_target_error() {
+                    println!(
+                        "target encountered a fatal error: {}",
+                        e.into_target_error().unwrap()
+                    )
+                } else if e.is_connection_error() {
+                    let (e, kind) = e.into_connection_error().unwrap();
+                    println!("connection error: {:?} - {}", kind, e,)
+                } else {
+                    println!("gdbstub encountered a fatal error: {}", e)
+                }
             }
         }
     }

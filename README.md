@@ -47,7 +47,6 @@ When you start that debugging session it should connect to `riscv_trace_debugger
 
 There are some known bugs/issues:
 
-1. The 'Restart' button causes some kind of crash. Probably easy to fix but I haven't looked into it.
 2. No CHERI support. I'm not sure if it is possible to display capability registers in the debugger, but we at least need capability stores to work correctly so that memory doesn't get out of sync.
 3. For some reason as soon as you start reverse debugging it switches to a disassembly view rather than staying in the source code view.
 4. The Ibex trace doesn't tell you the size of a memory access, so any non-32-bit accesses will break things currently.

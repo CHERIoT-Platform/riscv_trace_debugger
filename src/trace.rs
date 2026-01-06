@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct RetireEvent<Usize> {
     pub time: u64,
     pub cycle: u64,
@@ -9,18 +10,21 @@ pub struct RetireEvent<Usize> {
     pub store: Option<MemWrite>,
 }
 
+#[derive(Clone)]
 pub struct XRegWrite<Usize> {
     pub index: u8,
     pub value: Usize,
     pub prev_value: Option<Usize>,
 }
 
+#[derive(Clone)]
 pub struct MemWrite {
     pub phys_addr: u64,
     pub value: Data,
     pub prev_value: Option<Data>,
 }
 
+#[derive(Clone)]
 pub enum Data {
     U8(u8),
     U16(u16),
