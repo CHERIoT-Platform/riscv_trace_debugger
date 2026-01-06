@@ -93,11 +93,10 @@ pub fn read_trace<Usize: Num>(file_path: &Path) -> Result<Vec<RetireEvent<Usize>
 
             for part in access_parts {
                 if let Some(val) = part.strip_prefix("store:0x") {
-                    // TODO: There's no way to get the size of the store but in the example they're all 32-bit.
                     if store_val.is_some() {
                         bail!("Multiple stores found");
                     }
-                    store_val = Some(u32::from_str_radix(val, 16).with_context(|| {
+                    store_val = Some(u64::from_str_radix(val, 16).with_context(|| {
                         format!("parsing {val:?} in line {line_number_plus_one}: {line:?}")
                     })?);
                 } else if let Some(val) = part.strip_prefix("PA:0x") {
@@ -129,11 +128,26 @@ pub fn read_trace<Usize: Num>(file_path: &Path) -> Result<Vec<RetireEvent<Usize>
 
         let store = match (store_val, phys_addr) {
             // TODO: Get the store size from the trace.
-            (Some(val), Some(phys_addr)) => Some(MemWrite {
-                phys_addr,
-                value: Data::U32(val),
-                prev_value: None,
-            }),
+            (Some(val), Some(phys_addr)) => {
+                // Ibex uses the same number format for all stores so the only
+                // way to get the size is by checking the instruction.
+                // Fortunately all loads and stores supported by Ibex have
+                // their width in the same place - bits [12,13].
+
+                let value = match (instruction >> 12) & 0b11 {
+                    0 => Data::U8(val.try_into()?),
+                    1 => Data::U16(val.try_into()?),
+                    2 => Data::U32(val.try_into()?),
+                    3 => Data::U64(val.try_into()?),
+                    _ => unreachable!(),
+                };
+
+                Some(MemWrite {
+                    phys_addr,
+                    value,
+                    prev_value: None,
+                })
+            }
             (None, _) => None,
             (Some(_), None) => bail!("Store without PA in line {line_number_plus_one}: {line:?}"),
         };
