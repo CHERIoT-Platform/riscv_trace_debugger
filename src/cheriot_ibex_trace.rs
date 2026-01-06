@@ -94,12 +94,12 @@ fn read_line<Usize: Num>(line: &str) -> Result<TraceEvent<Usize>> {
                         let val = val.trim_start_matches('?');
 
                         match val.len() {
-                            4 => Data::U8(parse_hex(val)?),
-                            6 => Data::U16(parse_hex(val)?),
-                            10 => Data::U32(parse_hex(val)?),
-                            18 => Data::U64(parse_hex(val)?),
-                            34 => Data::U128(parse_hex(val)?),
-                            _ => bail!("Invalid hex length"),
+                            2 => Data::U8(parse_hex(val)?),
+                            4 => Data::U16(parse_hex(val)?),
+                            8 => Data::U32(parse_hex(val)?),
+                            16 => Data::U64(parse_hex(val)?),
+                            32 => Data::U128(parse_hex(val)?),
+                            _ => bail!("Invalid hex length: {val:?}"),
                         }
                     }
                 });
