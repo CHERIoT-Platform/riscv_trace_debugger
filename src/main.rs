@@ -149,6 +149,10 @@ struct Args {
     /// Path to a Cheriot-Ibex trace file.
     #[arg(long, value_name = "TRACE_FILE")]
     cheriot_ibex_trace: Option<PathBuf>,
+
+    /// Path to a waves file to open with Surfer (VCD or FST).
+    #[arg(long, value_name = "WAVE_FILE")]
+    waves: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -176,6 +180,11 @@ fn main() -> Result<()> {
 }
 
 fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
+
+    if let Some(waves) = args.waves {
+        // TODO: Listen on a port, and start Surfer, telling it to connect to that port.
+    }
+
     let trace = match (args.ibex_trace, args.cheriot_ibex_trace) {
         (Some(path), None) => ibex_trace::read_trace(&path),
         (None, Some(path)) => cheriot_ibex_trace::read_trace(&path),
