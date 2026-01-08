@@ -10,6 +10,7 @@ mod memory;
 mod riscv;
 mod trace;
 
+use anyhow::Context as _;
 use anyhow::bail;
 use gdbstub::common::Signal;
 use gdbstub::conn::Connection;
@@ -28,6 +29,13 @@ use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
 #[cfg(unix)]
 use std::path::Path;
+use tokio::io::AsyncReadExt as _;
+use tokio::io::AsyncWriteExt as _;
+use tokio::process::Command;
+use tokio::select;
+use tokio::sync::watch;
+use tokio::sync::watch::Receiver;
+use tokio::sync::watch::Sender;
 
 use anyhow::Result;
 use clap::Parser;
@@ -155,7 +163,8 @@ struct Args {
     waves: Option<PathBuf>,
 }
 
-fn main() -> Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
     let args = Args::parse();
     let elf = std::fs::read(&args.elf)?;
 
@@ -166,25 +175,38 @@ fn main() -> Result<()> {
             "ELF is Big Endian. Either something has gone horribly wrong and the file is corrupted or something has gone horribly wrong and you're using Big Endian in the 21st century."
         );
     }
-    // Apparently this isn't a reliable check?
 
+    // Apparently this isn't a reliable check?
     // if !elf_header.header.e_machine != goblin::elf::header::EM_RISCV {
     //     bail!("Not a RISC-V ELF");
     // }
 
     if elf_header.is_64 {
-        main_impl::<RiscvArch32>(args, elf)
+        main_impl::<RiscvArch32>(args, elf).await
     } else {
-        main_impl::<RiscvArch64>(args, elf)
+        main_impl::<RiscvArch64>(args, elf).await
     }
 }
 
-fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
+async fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
+    let (send_time, receive_time) = watch::channel(0);
 
-    if let Some(waves) = args.waves {
-        // TODO: Listen on a port, and start Surfer, telling it to connect to that port.
+    if let Some(waves) = &args.waves {
+        let waves = waves.to_owned();
+        // Start the task to spawn Surfer and connect to us.
+        tokio::task::spawn(async {
+            if let Err(e) = main_waves(waves, receive_time).await {
+                eprintln!("{e:?}");
+            }
+        });
     }
 
+    tokio::task::spawn_blocking(move || main_gdb::<A>(args, elf, send_time)).await??;
+
+    Ok(())
+}
+
+fn main_gdb<A: RiscvArch>(args: Args, elf: Vec<u8>, send_time: Sender<u64>) -> Result<()> {
     let trace = match (args.ibex_trace, args.cheriot_ibex_trace) {
         (Some(path), None) => ibex_trace::read_trace(&path),
         (None, Some(path)) => cheriot_ibex_trace::read_trace(&path),
@@ -196,7 +218,7 @@ fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
     while !done {
         done = true;
 
-        let mut machine = machine::Machine::new(elf.clone(), trace.clone())?;
+        let mut machine = machine::Machine::new(elf.clone(), trace.clone(), send_time.clone())?;
 
         let connection: Box<dyn ConnectionExt<Error = std::io::Error>> = match &args.uds {
             Some(uds_path) => {
@@ -243,6 +265,91 @@ fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
                 } else {
                     println!("gdbstub encountered a fatal error: {}", e)
                 }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn main_waves(waves: PathBuf, mut receive_time: Receiver<u64>) -> Result<()> {
+    // Start TCP server on random port.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+
+    // Verify we can run surfer successfully.
+    let child = Command::new("surfer")
+        .arg("--version")
+        .status()
+        .await
+        .context("running `surfer --version`")?;
+    if !child.success() {
+        bail!("`surfer --version` returned non-zero exit code");
+    }
+
+    // Run the surfer process.
+    let mut child = Command::new("surfer")
+        .arg("--wcp-initiate")
+        .arg(port.to_string())
+        .arg(waves)
+        .spawn()?;
+
+    // Accept a connection.
+    let (mut socket, _) = listener.accept().await?;
+
+    // TODO: Use concat_bytes when stable.
+    socket
+        .write_all(
+            br#"{
+    "type": "greeting",
+    "version": "0",
+    "commands": ["cursor_set", "set_viewport_to"]
+}"#,
+        )
+        .await?;
+    socket.write_all(&[0]).await?;
+
+    let mut read_buf = [0u8; 4096];
+
+    // Listen for incoming data (which is discarded), receive_time events,
+    // and for surfer to exit.
+    loop {
+        select! {
+            read = socket.read(&mut read_buf) => {
+                let n = read?;
+                if n == 0 {
+                    break; // connection closed
+                }
+                // discard received data
+
+                // TODO: Ideally we would process the responses.
+            }
+            changed = receive_time.changed() => {
+                changed?;
+                let time = *receive_time.borrow_and_update();
+
+                // Move cursor.
+                let message = format!(r#"{{
+    "type": "command",
+    "command": "cursor_set",
+    "timestamp": {time}
+}}"#);
+                socket.write_all(message.as_bytes()).await?;
+                socket.write_all(&[0]).await?;
+
+                // Centre viewport.
+                let message = format!(r#"{{
+    "type": "command",
+    "command": "set_viewport_to",
+    "timestamp": {time}
+}}"#);
+                socket.write_all(message.as_bytes()).await?;
+                socket.write_all(&[0]).await?;
+            }
+            status = child.wait() => {
+                // Surfer process exited.
+                let _status = status?;
+                return Ok(());
             }
         }
     }

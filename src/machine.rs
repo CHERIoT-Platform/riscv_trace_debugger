@@ -17,6 +17,7 @@ use gdbstub::target::ext::tracepoints::TracepointEnumerateState;
 use num_traits::FromPrimitive as _;
 use num_traits::ToPrimitive;
 use std::collections::BTreeMap;
+use tokio::sync::watch::Sender;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Event {
@@ -77,10 +78,16 @@ pub struct Machine<A: RiscvArch> {
     pub tracepoint_enumerate_state: TracepointEnumerateState<u64>,
     pub tracing: bool,
     pub selected_frame: Option<usize>,
+
+    send_time: Sender<u64>,
 }
 
 impl<A: RiscvArch> Machine<A> {
-    pub fn new(elf: Vec<u8>, trace: Vec<TraceEvent<A::Usize>>) -> Result<Machine<A>> {
+    pub fn new(
+        elf: Vec<u8>,
+        trace: Vec<TraceEvent<A::Usize>>,
+        send_time: Sender<u64>,
+    ) -> Result<Machine<A>> {
         // set up emulated system
         let mut cpu = Cpu::<A::Usize>::default();
         let mut mem = SimpleMemory::default();
@@ -146,6 +153,8 @@ impl<A: RiscvArch> Machine<A> {
             tracepoint_enumerate_state: Default::default(),
             tracing: false,
             selected_frame: None,
+
+            send_time,
         })
     }
 
@@ -234,7 +243,7 @@ impl<A: RiscvArch> Machine<A> {
     /// will use the provided callback to poll the connection for incoming data
     /// every 1024 steps.
     pub fn run(&mut self, mut poll_incoming_data: impl FnMut() -> bool) -> RunEvent {
-        match self.exec_mode {
+        let event = match self.exec_mode {
             ExecMode::Step => RunEvent::Event(self.step().unwrap_or(Event::DoneStep)),
             ExecMode::Continue => {
                 let mut cycles = 0;
@@ -275,7 +284,14 @@ impl<A: RiscvArch> Machine<A> {
                     }
                 }
             }
+        };
+
+        // Update the time. Ignore errors.
+        if let Some(event) = self.trace.get(self.trace_index) {
+            let _ = self.send_time.send(event.time);
         }
+
+        event
     }
 }
 
