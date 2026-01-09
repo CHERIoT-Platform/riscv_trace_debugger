@@ -215,6 +215,8 @@ fn main_gdb<A: RiscvArch>(args: Args, elf: Vec<u8>, send_time: Sender<u64>) -> R
 
     let mut done = false;
 
+    // TODO: I think it's possible to make this async using run_state_machine.
+
     while !done {
         done = true;
 
