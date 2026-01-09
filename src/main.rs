@@ -187,11 +187,11 @@ async fn main() -> Result<()> {
     // }
 
     if elf_header.is_64 {
-        info!("32-bit ELF");
-        main_impl::<RiscvArch32>(args, elf).await
+        info!("64-bit ELF");
+        main_impl::<RiscvArch64>(args, elf).await
     } else {
         info!("32-bit ELF");
-        main_impl::<RiscvArch64>(args, elf).await
+        main_impl::<RiscvArch32>(args, elf).await
     }
 }
 
