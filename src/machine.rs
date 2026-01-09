@@ -14,6 +14,7 @@ use gdbstub::target::ext::tracepoints::SourceTracepoint;
 use gdbstub::target::ext::tracepoints::Tracepoint;
 use gdbstub::target::ext::tracepoints::TracepointAction;
 use gdbstub::target::ext::tracepoints::TracepointEnumerateState;
+use log::info;
 use num_traits::FromPrimitive as _;
 use num_traits::ToPrimitive;
 use std::collections::BTreeMap;
@@ -103,7 +104,7 @@ impl<A: RiscvArch> Machine<A> {
         // TODO: Initialise tags.
 
         for h in sections {
-            eprintln!(
+            info!(
                 "loading section {:?} into memory from [{:#010x?}..{:#010x?}]",
                 elf_header
                     .shdr_strtab
@@ -124,7 +125,7 @@ impl<A: RiscvArch> Machine<A> {
         }
 
         // setup execution state
-        eprintln!("Setting PC to {:#010x?}", elf_header.entry);
+        info!("Setting PC to {:#010x?}", elf_header.entry);
         cpu.pc = A::Usize::from_u64(elf_header.entry).ok_or_else(|| {
             anyhow!(
                 "Couldn't convert ELF entry point to usize: {:#x}",

@@ -4,6 +4,7 @@ mod cheriot_ibex_trace;
 mod cpu;
 mod gdb;
 mod ibex_trace;
+mod logging;
 mod machine;
 mod mem_sniffer;
 mod memory;
@@ -20,6 +21,8 @@ use gdbstub::stub::GdbStub;
 use gdbstub::stub::SingleThreadStopReason;
 use gdbstub::stub::run_blocking;
 use gdbstub::target::Target;
+use log::error;
+use log::info;
 use std::marker::PhantomData;
 use std::net::TcpListener;
 use std::net::TcpStream;
@@ -47,11 +50,11 @@ use crate::riscv::RiscvArch64;
 
 fn wait_for_tcp(port: u16) -> Result<TcpStream> {
     let sockaddr = format!("127.0.0.1:{}", port);
-    eprintln!("Waiting for a GDB connection on {:?}...", sockaddr);
+    info!("Waiting for a GDB connection on {:?}...", sockaddr);
 
     let sock = TcpListener::bind(sockaddr)?;
     let (stream, addr) = sock.accept()?;
-    eprintln!("Debugger connected from {}", addr);
+    info!("Debugger connected from {}", addr);
 
     Ok(stream)
 }
@@ -66,11 +69,11 @@ fn wait_for_uds(path: &Path) -> Result<UnixStream> {
         },
     }
 
-    eprintln!("Waiting for a GDB connection on {}...", path.display());
+    info!("Waiting for a GDB connection on {}...", path.display());
 
     let sock = UnixListener::bind(path)?;
     let (stream, addr) = sock.accept()?;
-    eprintln!("Debugger connected from {:?}", addr);
+    info!("Debugger connected from {:?}", addr);
 
     Ok(stream)
 }
@@ -165,6 +168,8 @@ struct Args {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    logging::init_logging()?;
+
     let args = Args::parse();
     let elf = std::fs::read(&args.elf)?;
 
@@ -182,8 +187,10 @@ async fn main() -> Result<()> {
     // }
 
     if elf_header.is_64 {
+        info!("32-bit ELF");
         main_impl::<RiscvArch32>(args, elf).await
     } else {
+        info!("32-bit ELF");
         main_impl::<RiscvArch64>(args, elf).await
     }
 }
@@ -196,7 +203,7 @@ async fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
         // Start the task to spawn Surfer and connect to us.
         tokio::task::spawn(async {
             if let Err(e) = main_waves(waves, receive_time).await {
-                eprintln!("{e:?}");
+                error!("{e:?}");
             }
         });
     }
