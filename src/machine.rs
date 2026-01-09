@@ -21,18 +21,18 @@ use std::collections::BTreeMap;
 use tokio::sync::watch::Sender;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Event {
+pub enum Event<A: RiscvArch> {
     DoneStep,
     Halted,
     Break,
-    WatchWrite(u64),
-    WatchRead(u64),
+    WatchWrite(A::Usize),
+    WatchRead(A::Usize),
 }
 
-pub enum ExecMode {
+pub enum ExecMode<A: RiscvArch> {
     Step,
     Continue,
-    RangeStep(u64, u64),
+    RangeStep(A::Usize, A::Usize),
 }
 
 #[derive(Copy, Clone)]
@@ -50,7 +50,7 @@ pub struct TraceFrame<A: RiscvArch> {
 /// "Emulator" for RISC-V trace file. It reconstructs registers and
 /// memory contents.
 pub struct Machine<A: RiscvArch> {
-    pub exec_mode: ExecMode,
+    pub exec_mode: ExecMode<A>,
     pub exec_dir: ExecDir,
 
     pub cpu: Cpu<A::Usize>,
@@ -63,20 +63,20 @@ pub struct Machine<A: RiscvArch> {
     // The ELF (needed so GDB can read it remotely).
     pub elf: Vec<u8>,
 
-    pub watchpoints: Vec<u64>,
-    pub breakpoints: Vec<u64>,
+    pub watchpoints: Vec<A::Usize>,
+    pub breakpoints: Vec<A::Usize>,
     pub files: Vec<Option<std::fs::File>>,
 
     pub tracepoints: BTreeMap<
         Tracepoint,
         (
-            NewTracepoint<u64>,
-            Vec<SourceTracepoint<'static, u64>>,
-            Vec<TracepointAction<'static, u64>>,
+            NewTracepoint<A::Usize>,
+            Vec<SourceTracepoint<'static, A::Usize>>,
+            Vec<TracepointAction<'static, A::Usize>>,
         ),
     >,
     pub traceframes: Vec<TraceFrame<A>>,
-    pub tracepoint_enumerate_state: TracepointEnumerateState<u64>,
+    pub tracepoint_enumerate_state: TracepointEnumerateState<A::Usize>,
     pub tracing: bool,
     pub selected_frame: Option<usize>,
 
@@ -160,13 +160,14 @@ impl<A: RiscvArch> Machine<A> {
     }
 
     /// single-step the interpreter
-    pub fn step(&mut self) -> Option<Event> {
+    pub fn step(&mut self) -> Option<Event<A>> {
         if self.tracing {
-            let pc = self.cpu.pc.to_u64().expect("couldn't convert PC to u64");
             let frames: Vec<_> = self
                 .tracepoints
                 .iter()
-                .filter(|(_tracepoint, (ctp, _source, _actions))| ctp.enabled && ctp.addr == pc)
+                .filter(|(_tracepoint, (ctp, _source, _actions))| {
+                    ctp.enabled && ctp.addr == self.cpu.pc
+                })
                 .map(|(tracepoint, _definition)| {
                     // our `tracepoint_define` restricts our loaded tracepoints to only contain
                     // register collect actions. instead of only collecting the registers requested
@@ -183,9 +184,15 @@ impl<A: RiscvArch> Machine<A> {
 
         let mut hit_watchpoint = None;
 
-        let mut sniffer = MemSniffer::new(&mut self.mem, &self.watchpoints, |access| {
-            hit_watchpoint = Some(access)
-        });
+        let tmp = Vec::new();
+
+        // TODO: Make MemSniffer generic? What about 34-bit physical addresses though?
+        // let mut sniffer = MemSniffer::new(&mut self.mem, &self.watchpoints, |access| {
+        //     hit_watchpoint = Some(access)
+        // });
+
+        let mut sniffer =
+            MemSniffer::new(&mut self.mem, &tmp, |access| hit_watchpoint = Some(access));
 
         match self.exec_dir {
             ExecDir::Forwards => {
@@ -223,15 +230,15 @@ impl<A: RiscvArch> Machine<A> {
             // let fixup = if self.cpu.thumb_mode() { 2 } else { 4 };
             // self.cpu.pc = pc - fixup;
 
-            return Some(match access.kind {
-                AccessKind::Read => Event::WatchRead(access.addr),
-                AccessKind::Write => Event::WatchWrite(access.addr),
-            });
+            todo!();
+
+            // return Some(match access.kind {
+            //     AccessKind::Read => Event::WatchRead(access.addr),
+            //     AccessKind::Write => Event::WatchWrite(access.addr),
+            // });
         }
 
-        let pc = self.cpu.pc.to_u64().expect("couldn't convert PC to u64");
-
-        if self.breakpoints.contains(&pc) {
+        if self.breakpoints.contains(&self.cpu.pc) {
             return Some(Event::Break);
         }
 
@@ -243,7 +250,7 @@ impl<A: RiscvArch> Machine<A> {
     /// since the emulator runs in the same thread as the GDB loop, the emulator
     /// will use the provided callback to poll the connection for incoming data
     /// every 1024 steps.
-    pub fn run(&mut self, mut poll_incoming_data: impl FnMut() -> bool) -> RunEvent {
+    pub fn run(&mut self, mut poll_incoming_data: impl FnMut() -> bool) -> RunEvent<A> {
         let event = match self.exec_mode {
             ExecMode::Step => RunEvent::Event(self.step().unwrap_or(Event::DoneStep)),
             ExecMode::Continue => {
@@ -278,9 +285,7 @@ impl<A: RiscvArch> Machine<A> {
                         break RunEvent::Event(event);
                     };
 
-                    let pc = self.cpu.pc.to_u64().expect("couldn't convert PC to u64");
-
-                    if !(start..end).contains(&pc) {
+                    if !(start..end).contains(&self.cpu.pc) {
                         break RunEvent::Event(Event::DoneStep);
                     }
                 }
@@ -296,7 +301,7 @@ impl<A: RiscvArch> Machine<A> {
     }
 }
 
-pub enum RunEvent {
+pub enum RunEvent<A: RiscvArch> {
     IncomingData,
-    Event(Event),
+    Event(Event<A>),
 }

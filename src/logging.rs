@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 
 pub fn init_logging() -> Result<()> {
     // Set up logging. RTD_LOG controls the log level. RTD_LOG_STYLE

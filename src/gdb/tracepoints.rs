@@ -17,7 +17,7 @@ use gdbstub::target::ext::tracepoints::TracepointEnumerateStep;
 use gdbstub::target::ext::tracepoints::TracepointStatus;
 
 impl<A: RiscvArch> Machine<A> {
-    fn step_to_next_tracepoint(&self, tp: Tracepoint) -> TracepointEnumerateStep<u64> {
+    fn step_to_next_tracepoint(&self, tp: Tracepoint) -> TracepointEnumerateStep<A::Usize> {
         let next_tp = self.tracepoints.range(tp..).nth(1);
         if let Some((tp, (new_tp, _, _))) = next_tp {
             TracepointEnumerateStep::Next {
@@ -38,7 +38,7 @@ impl<A: RiscvArch> target::ext::tracepoints::Tracepoints for Machine<A> {
         Ok(())
     }
 
-    fn tracepoint_create_begin(&mut self, tp: NewTracepoint<u64>) -> TargetResult<(), Self> {
+    fn tracepoint_create_begin(&mut self, tp: NewTracepoint<A::Usize>) -> TargetResult<(), Self> {
         self.tracepoints.insert(tp.number, (tp, vec![], vec![]));
         Ok(())
     }
@@ -46,7 +46,7 @@ impl<A: RiscvArch> target::ext::tracepoints::Tracepoints for Machine<A> {
     fn tracepoint_create_continue(
         &mut self,
         tp: Tracepoint,
-        action: &TracepointAction<'_, u64>,
+        action: &TracepointAction<'_, A::Usize>,
     ) -> TargetResult<(), Self> {
         if let &TracepointAction::Registers { mask: _ } = &action {
             // we only handle register collection actions for the simple
@@ -68,7 +68,7 @@ impl<A: RiscvArch> target::ext::tracepoints::Tracepoints for Machine<A> {
     fn tracepoint_status(
         &self,
         tp: Tracepoint,
-        _addr: u64,
+        _addr: A::Usize,
     ) -> TargetResult<TracepointStatus, Self> {
         // We don't collect "real" trace buffer frames, so just report hit count
         // and say the number of bytes is always 0.
@@ -84,15 +84,15 @@ impl<A: RiscvArch> target::ext::tracepoints::Tracepoints for Machine<A> {
         })
     }
 
-    fn tracepoint_enumerate_state(&mut self) -> &mut TracepointEnumerateState<u64> {
+    fn tracepoint_enumerate_state(&mut self) -> &mut TracepointEnumerateState<A::Usize> {
         &mut self.tracepoint_enumerate_state
     }
 
     fn tracepoint_enumerate_start(
         &mut self,
         tp: Option<Tracepoint>,
-        f: &mut dyn FnMut(&NewTracepoint<u64>),
-    ) -> TargetResult<TracepointEnumerateStep<u64>, Self> {
+        f: &mut dyn FnMut(&NewTracepoint<A::Usize>),
+    ) -> TargetResult<TracepointEnumerateStep<A::Usize>, Self> {
         let tp = match tp {
             Some(tp) => tp,
             None => {
@@ -124,8 +124,8 @@ impl<A: RiscvArch> target::ext::tracepoints::Tracepoints for Machine<A> {
         &mut self,
         tp: Tracepoint,
         step: u64,
-        f: &mut dyn FnMut(&TracepointAction<'_, u64>),
-    ) -> TargetResult<TracepointEnumerateStep<u64>, Self> {
+        f: &mut dyn FnMut(&TracepointAction<'_, A::Usize>),
+    ) -> TargetResult<TracepointEnumerateStep<A::Usize>, Self> {
         // Report our next action
         (f)(&self.tracepoints[&tp].2[step as usize]);
 
@@ -190,7 +190,7 @@ impl<A: RiscvArch> target::ext::tracepoints::Tracepoints for Machine<A> {
 
     fn select_frame(
         &mut self,
-        frame: FrameRequest<u64>,
+        frame: FrameRequest<A::Usize>,
         report: &mut dyn FnMut(FrameDescription),
     ) -> TargetResult<(), Self> {
         // For a bare-bones example, we only support `tfind <number>` and `tfind
@@ -240,8 +240,8 @@ impl<A: RiscvArch> target::ext::tracepoints::TracepointSource for Machine<A> {
         &mut self,
         tp: Tracepoint,
         step: u64,
-        f: &mut dyn FnMut(&SourceTracepoint<'_, u64>),
-    ) -> TargetResult<TracepointEnumerateStep<u64>, Self> {
+        f: &mut dyn FnMut(&SourceTracepoint<'_, A::Usize>),
+    ) -> TargetResult<TracepointEnumerateStep<A::Usize>, Self> {
         // Report our next source item
         (f)(&self.tracepoints[&tp].1[step as usize]);
 
@@ -258,7 +258,7 @@ impl<A: RiscvArch> target::ext::tracepoints::TracepointSource for Machine<A> {
 
     fn tracepoint_attach_source(
         &mut self,
-        src: SourceTracepoint<'_, u64>,
+        src: SourceTracepoint<'_, A::Usize>,
     ) -> TargetResult<(), Self> {
         self.tracepoints
             .get_mut(&src.number)

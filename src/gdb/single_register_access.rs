@@ -1,8 +1,11 @@
 use gdbstub::internal::LeBytes;
 use gdbstub::target::{self, TargetResult};
-use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
-use crate::{cpu::Privilege, machine::Machine, riscv::RiscvArch};
+use crate::{
+    cpu::Privilege,
+    machine::Machine,
+    riscv::{RiscvArch, reg::id::RiscvRegId},
+};
 
 impl<A: RiscvArch> target::ext::base::single_register_access::SingleRegisterAccess<()>
     for Machine<A>
@@ -10,7 +13,7 @@ impl<A: RiscvArch> target::ext::base::single_register_access::SingleRegisterAcce
     fn read_register(
         &mut self,
         _tid: (),
-        reg_id: RiscvRegId<u64>,
+        reg_id: RiscvRegId<A::Usize>,
         buf: &mut [u8],
     ) -> TargetResult<usize, Self> {
         match reg_id {
@@ -53,7 +56,7 @@ impl<A: RiscvArch> target::ext::base::single_register_access::SingleRegisterAcce
     fn write_register(
         &mut self,
         _tid: (),
-        _reg_id: RiscvRegId<u64>,
+        _reg_id: RiscvRegId<A::Usize>,
         _val: &[u8],
     ) -> TargetResult<(), Self> {
         // Can't modify registers.

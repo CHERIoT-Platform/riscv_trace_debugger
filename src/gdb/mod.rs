@@ -10,7 +10,8 @@ use gdbstub::target::TargetError;
 use gdbstub::target::TargetResult;
 use gdbstub::target::ext::base::singlethread::SingleThreadBase;
 use gdbstub::target::ext::base::singlethread::SingleThreadResume;
-use gdbstub_arch::riscv::Riscv64;
+use num_traits::FromPrimitive;
+use num_traits::ToPrimitive;
 
 // Additional GDB extensions
 
@@ -49,9 +50,7 @@ pub fn copy_range_to_buf(data: &[u8], offset: u64, length: usize, buf: &mut [u8]
 }
 
 impl<A: RiscvArch> Target for Machine<A> {
-    // We'll always assume RV64. It doesn't really make a difference.
-    // I guess we could parameterise this and read it from the ELF.
-    type Arch = Riscv64;
+    type Arch = A::BaseArch;
     type Error = &'static str;
 
     // --------------- IMPORTANT NOTE ---------------
@@ -131,7 +130,7 @@ impl<A: RiscvArch> SingleThreadBase for Machine<A> {
         Some(self)
     }
 
-    fn read_addrs(&mut self, start_addr: u64, data: &mut [u8]) -> TargetResult<usize, Self> {
+    fn read_addrs(&mut self, start_addr: A::Usize, data: &mut [u8]) -> TargetResult<usize, Self> {
         if self.selected_frame.is_some() {
             // we only support register collection actions for our tracepoint frames.
             // if we have a selected frame, then we don't have any memory we can
@@ -139,13 +138,16 @@ impl<A: RiscvArch> SingleThreadBase for Machine<A> {
             return Ok(0);
         }
 
-        for (addr, val) in (start_addr..).zip(data.iter_mut()) {
-            *val = self.mem.r8(addr)
+        let mut addr = start_addr;
+
+        for val in data.iter_mut() {
+            *val = self.mem.r8(addr.to_u64().unwrap());
+            addr += A::Usize::from_u32(1).unwrap();
         }
         Ok(data.len())
     }
 
-    fn write_addrs(&mut self, _start_addr: u64, _data: &[u8]) -> TargetResult<(), Self> {
+    fn write_addrs(&mut self, _start_addr: A::Usize, _data: &[u8]) -> TargetResult<(), Self> {
         // Can't modify memory.
         Err(TargetError::NonFatal)
     }

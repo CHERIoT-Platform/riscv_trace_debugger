@@ -11,6 +11,7 @@ use gdbstub::target::ext::host_io::HostIoOpenFlags;
 use gdbstub::target::ext::host_io::HostIoOpenMode;
 use gdbstub::target::ext::host_io::HostIoResult;
 use gdbstub::target::ext::host_io::HostIoStat;
+use num_traits::{FromPrimitive, ToPrimitive};
 use std::io::Read;
 use std::io::Seek;
 use std::io::Write;
@@ -163,7 +164,7 @@ impl<A: RiscvArch> target::ext::host_io::HostIoPread for Machine<A> {
 }
 
 impl<A: RiscvArch> target::ext::host_io::HostIoPwrite for Machine<A> {
-    fn pwrite(&mut self, fd: u32, offset: u64, data: &[u8]) -> HostIoResult<u64, Self> {
+    fn pwrite(&mut self, fd: u32, offset: A::Usize, data: &[u8]) -> HostIoResult<A::Usize, Self> {
         if fd < FD_RESERVED {
             return Err(HostIoError::Errno(HostIoErrno::EACCES));
         }
@@ -173,9 +174,9 @@ impl<A: RiscvArch> target::ext::host_io::HostIoPwrite for Machine<A> {
             _ => return Err(HostIoError::Errno(HostIoErrno::EBADF)),
         };
 
-        file.seek(std::io::SeekFrom::Start(offset))?;
+        file.seek(std::io::SeekFrom::Start(offset.to_u64().unwrap()))?;
         let n = file.write(data)?;
-        Ok(n as u64)
+        Ok(A::Usize::from_usize(n).unwrap())
     }
 }
 

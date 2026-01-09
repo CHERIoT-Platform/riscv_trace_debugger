@@ -85,14 +85,14 @@ struct TraceGdbEventLoop<A: RiscvArch> {
 impl<A: RiscvArch> run_blocking::BlockingEventLoop for TraceGdbEventLoop<A> {
     type Target = machine::Machine<A>;
     type Connection = Box<dyn ConnectionExt<Error = std::io::Error>>;
-    type StopReason = SingleThreadStopReason<u64>;
+    type StopReason = SingleThreadStopReason<A::Usize>;
 
     #[allow(clippy::type_complexity)]
     fn wait_for_stop_reason(
         target: &mut machine::Machine<A>,
         conn: &mut Self::Connection,
     ) -> Result<
-        run_blocking::Event<SingleThreadStopReason<u64>>,
+        run_blocking::Event<SingleThreadStopReason<A::Usize>>,
         run_blocking::WaitForStopReasonError<
             <Self::Target as Target>::Error,
             <Self::Connection as Connection>::Error,
@@ -113,7 +113,7 @@ impl<A: RiscvArch> run_blocking::BlockingEventLoop for TraceGdbEventLoop<A> {
                 use gdbstub::target::ext::breakpoints::WatchKind;
 
                 // translate emulator stop reason into GDB stop reason
-                let stop_reason = match event {
+                let stop_reason: gdbstub::stub::BaseStopReason<(), A::Usize> = match event {
                     machine::Event::DoneStep => SingleThreadStopReason::DoneStep,
                     machine::Event::Halted => SingleThreadStopReason::Terminated(Signal::SIGSTOP),
                     machine::Event::Break => SingleThreadStopReason::SwBreak(()),
@@ -137,7 +137,8 @@ impl<A: RiscvArch> run_blocking::BlockingEventLoop for TraceGdbEventLoop<A> {
     // Called when Ctrl-C is sent to GDB. We can just exit.
     fn on_interrupt(
         _target: &mut machine::Machine<A>,
-    ) -> Result<Option<SingleThreadStopReason<u64>>, <machine::Machine<A> as Target>::Error> {
+    ) -> Result<Option<SingleThreadStopReason<A::Usize>>, <machine::Machine<A> as Target>::Error>
+    {
         Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
     }
 }

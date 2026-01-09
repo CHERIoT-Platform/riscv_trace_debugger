@@ -4,6 +4,7 @@ use gdbstub::arch::Arch;
 use gdbstub::target;
 use gdbstub::target::TargetResult;
 use gdbstub::target::ext::breakpoints::WatchKind;
+use num_iter::range;
 
 impl<A: RiscvArch> target::ext::breakpoints::Breakpoints for Machine<A> {
     #[inline(always)]
@@ -24,8 +25,8 @@ impl<A: RiscvArch> target::ext::breakpoints::Breakpoints for Machine<A> {
 impl<A: RiscvArch> target::ext::breakpoints::SwBreakpoint for Machine<A> {
     fn add_sw_breakpoint(
         &mut self,
-        addr: u64,
-        _kind: <gdbstub_arch::riscv::Riscv64 as Arch>::BreakpointKind,
+        addr: A::Usize,
+        _kind: <A::BaseArch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
         self.breakpoints.push(addr);
         Ok(true)
@@ -33,8 +34,8 @@ impl<A: RiscvArch> target::ext::breakpoints::SwBreakpoint for Machine<A> {
 
     fn remove_sw_breakpoint(
         &mut self,
-        addr: u64,
-        _kind: <gdbstub_arch::riscv::Riscv64 as Arch>::BreakpointKind,
+        addr: A::Usize,
+        _kind: <A::BaseArch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
         match self.breakpoints.iter().position(|x| *x == addr) {
             None => return Ok(false),
@@ -48,11 +49,11 @@ impl<A: RiscvArch> target::ext::breakpoints::SwBreakpoint for Machine<A> {
 impl<A: RiscvArch> target::ext::breakpoints::HwWatchpoint for Machine<A> {
     fn add_hw_watchpoint(
         &mut self,
-        addr: u64,
-        len: u64,
+        addr: A::Usize,
+        len: A::Usize,
         kind: WatchKind,
     ) -> TargetResult<bool, Self> {
-        for addr in addr..(addr + len) {
+        for addr in range(addr, addr + len) {
             match kind {
                 WatchKind::Write => self.watchpoints.push(addr),
                 WatchKind::Read => self.watchpoints.push(addr),
@@ -65,11 +66,11 @@ impl<A: RiscvArch> target::ext::breakpoints::HwWatchpoint for Machine<A> {
 
     fn remove_hw_watchpoint(
         &mut self,
-        addr: u64,
-        len: u64,
+        addr: A::Usize,
+        len: A::Usize,
         kind: WatchKind,
     ) -> TargetResult<bool, Self> {
-        for addr in addr..(addr + len) {
+        for addr in range(addr, addr + len) {
             let pos = match self.watchpoints.iter().position(|x| *x == addr) {
                 None => return Ok(false),
                 Some(pos) => pos,
