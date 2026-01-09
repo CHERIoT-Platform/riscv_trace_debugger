@@ -5,7 +5,8 @@ use gdbstub::arch::Arch;
 use gdbstub::internal::{BeBytes, LeBytes};
 use num_traits::{FromPrimitive, PrimInt, Unsigned};
 
-/// Extended version of `Arch` with more constraints and more types (in future probably).
+/// Extended version of `Arch` with more constraints (Usize: Default + Clone + Debug)
+/// and more types (in future probably).
 pub trait RiscvArch {
     type Usize: Default + Clone + Debug + FromPrimitive + PrimInt + Unsigned + BeBytes + LeBytes;
     type BaseArch: Arch<Usize = Self::Usize>;
