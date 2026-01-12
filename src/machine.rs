@@ -9,6 +9,8 @@ use crate::trace::TraceEvent;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
+use gdbstub::common::Signal;
+use gdbstub::stub::SingleThreadStopReason;
 use gdbstub::target::ext::tracepoints::NewTracepoint;
 use gdbstub::target::ext::tracepoints::SourceTracepoint;
 use gdbstub::target::ext::tracepoints::Tracepoint;
@@ -19,15 +21,7 @@ use num_traits::FromPrimitive as _;
 use num_traits::ToPrimitive;
 use std::collections::BTreeMap;
 use tokio::sync::watch::Sender;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Event<A: RiscvArch> {
-    DoneStep,
-    Halted,
-    Break,
-    WatchWrite(A::Usize),
-    WatchRead(A::Usize),
-}
+use tokio::task::yield_now;
 
 pub enum ExecMode<A: RiscvArch> {
     Step,
@@ -159,8 +153,8 @@ impl<A: RiscvArch> Machine<A> {
         })
     }
 
-    /// single-step the interpreter
-    pub fn step(&mut self) -> Option<Event<A>> {
+    /// Single-step the interpreter. Returns None if it wasn't stopped (no breakpoint etc.).
+    pub fn step(&mut self) -> Option<SingleThreadStopReason<A::Usize>> {
         if self.tracing {
             let frames: Vec<_> = self
                 .tracepoints
@@ -197,7 +191,7 @@ impl<A: RiscvArch> Machine<A> {
         match self.exec_dir {
             ExecDir::Forwards => {
                 if self.trace_index >= self.trace.len() {
-                    return Some(Event::Halted);
+                    return Some(SingleThreadStopReason::Terminated(Signal::SIGSTOP));
                 }
                 self.cpu
                     .step(&mut sniffer, &mut self.trace[self.trace_index]);
@@ -206,7 +200,7 @@ impl<A: RiscvArch> Machine<A> {
             ExecDir::Backwards => {
                 if self.trace_index == 0 {
                     // TODO: Double check this.
-                    return Some(Event::DoneStep);
+                    return Some(SingleThreadStopReason::DoneStep);
                 }
                 self.trace_index -= 1;
                 let prev_event = if self.trace_index >= 1 && self.trace_index - 1 < self.trace.len()
@@ -239,33 +233,35 @@ impl<A: RiscvArch> Machine<A> {
         }
 
         if self.breakpoints.contains(&self.cpu.pc) {
-            return Some(Event::Break);
+            return Some(SingleThreadStopReason::SwBreak(()));
         }
 
         None
     }
 
-    /// run the emulator in accordance with the currently set `ExecutionMode`.
+    /// Run the emulator in accordance with the currently set `ExecutionMode`.
     ///
-    /// since the emulator runs in the same thread as the GDB loop, the emulator
-    /// will use the provided callback to poll the connection for incoming data
-    /// every 1024 steps.
-    pub fn run(&mut self, mut poll_incoming_data: impl FnMut() -> bool) -> RunEvent<A> {
+    /// This will yield every 1024 steps to allow other things to run.
+    ///
+    /// Cancellation safety: This is cancellation safe. The only yield points
+    /// are `yield_now()` and those happen before anything else.
+    pub async fn run(&mut self) -> SingleThreadStopReason<A::Usize> {
         let event = match self.exec_mode {
-            ExecMode::Step => RunEvent::Event(self.step().unwrap_or(Event::DoneStep)),
+            ExecMode::Step => self.step().unwrap_or(SingleThreadStopReason::DoneStep),
             ExecMode::Continue => {
                 let mut cycles = 0;
                 loop {
+                    // TODO: Profile an optimal value here. Lower values
+                    // will lead to more CPU overhead but higher values
+                    // will lead to increased latency.
                     if cycles % 1024 == 0 {
-                        // poll for incoming data
-                        if poll_incoming_data() {
-                            break RunEvent::IncomingData;
-                        }
+                        // Yield back to Tokio so other things can run.
+                        yield_now().await;
                     }
                     cycles += 1;
 
                     if let Some(event) = self.step() {
-                        break RunEvent::Event(event);
+                        break event;
                     };
                 }
             }
@@ -273,20 +269,21 @@ impl<A: RiscvArch> Machine<A> {
             ExecMode::RangeStep(start, end) => {
                 let mut cycles = 0;
                 loop {
+                    // TODO: Profile an optimal value here. Lower values
+                    // will lead to more CPU overhead but higher values
+                    // will lead to increased latency.
                     if cycles % 1024 == 0 {
-                        // poll for incoming data
-                        if poll_incoming_data() {
-                            break RunEvent::IncomingData;
-                        }
+                        // Yield back to Tokio so other things can run.
+                        yield_now().await;
                     }
                     cycles += 1;
 
                     if let Some(event) = self.step() {
-                        break RunEvent::Event(event);
+                        break event;
                     };
 
                     if !(start..end).contains(&self.cpu.pc) {
-                        break RunEvent::Event(Event::DoneStep);
+                        break SingleThreadStopReason::DoneStep;
                     }
                 }
             }
@@ -299,9 +296,4 @@ impl<A: RiscvArch> Machine<A> {
 
         event
     }
-}
-
-pub enum RunEvent<A: RiscvArch> {
-    IncomingData,
-    Event(Event<A>),
 }

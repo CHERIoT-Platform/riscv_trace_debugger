@@ -1,5 +1,6 @@
 //! A simple gdbserver implementation for RISC-V trace files.
 
+mod buffered_connection;
 mod cheriot_ibex_trace;
 mod cpu;
 mod gdb;
@@ -14,24 +15,13 @@ mod trace;
 use anyhow::Context as _;
 use anyhow::bail;
 use gdbstub::common::Signal;
-use gdbstub::conn::Connection;
-use gdbstub::conn::ConnectionExt;
 use gdbstub::stub::DisconnectReason;
 use gdbstub::stub::GdbStub;
 use gdbstub::stub::SingleThreadStopReason;
-use gdbstub::stub::run_blocking;
-use gdbstub::target::Target;
+use gdbstub::stub::state_machine;
 use log::error;
 use log::info;
-use std::marker::PhantomData;
-use std::net::TcpListener;
-use std::net::TcpStream;
-#[cfg(unix)]
-use std::os::unix::net::UnixListener;
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
-#[cfg(unix)]
-use std::path::Path;
+
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
 use tokio::process::Command;
@@ -44,112 +34,19 @@ use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
 
+use crate::buffered_connection::BufferedConnection;
 use crate::riscv::RiscvArch;
 use crate::riscv::RiscvArch32;
 use crate::riscv::RiscvArch64;
-
-fn wait_for_tcp(port: u16) -> Result<TcpStream> {
-    let sockaddr = format!("127.0.0.1:{}", port);
-    info!("Waiting for a GDB connection on {:?}...", sockaddr);
-
-    let sock = TcpListener::bind(sockaddr)?;
-    let (stream, addr) = sock.accept()?;
-    info!("Debugger connected from {}", addr);
-
-    Ok(stream)
-}
-
-#[cfg(unix)]
-fn wait_for_uds(path: &Path) -> Result<UnixStream> {
-    match std::fs::remove_file(path) {
-        Ok(_) => {}
-        Err(e) => match e.kind() {
-            std::io::ErrorKind::NotFound => {}
-            _ => return Err(e.into()),
-        },
-    }
-
-    info!("Waiting for a GDB connection on {}...", path.display());
-
-    let sock = UnixListener::bind(path)?;
-    let (stream, addr) = sock.accept()?;
-    info!("Debugger connected from {:?}", addr);
-
-    Ok(stream)
-}
-
-struct TraceGdbEventLoop<A: RiscvArch> {
-    _phantom: PhantomData<A>,
-}
-
-impl<A: RiscvArch> run_blocking::BlockingEventLoop for TraceGdbEventLoop<A> {
-    type Target = machine::Machine<A>;
-    type Connection = Box<dyn ConnectionExt<Error = std::io::Error>>;
-    type StopReason = SingleThreadStopReason<A::Usize>;
-
-    #[allow(clippy::type_complexity)]
-    fn wait_for_stop_reason(
-        target: &mut machine::Machine<A>,
-        conn: &mut Self::Connection,
-    ) -> Result<
-        run_blocking::Event<SingleThreadStopReason<A::Usize>>,
-        run_blocking::WaitForStopReasonError<
-            <Self::Target as Target>::Error,
-            <Self::Connection as Connection>::Error,
-        >,
-    > {
-        // We can use the same poll-based model to check for interrupt events
-        // as gdbstub's `armv4t` example. See that example for a more detailed comment.
-        let poll_incoming_data = || conn.peek().map(|b| b.is_some()).unwrap_or(true);
-
-        match target.run(poll_incoming_data) {
-            machine::RunEvent::IncomingData => {
-                let byte = conn
-                    .read()
-                    .map_err(run_blocking::WaitForStopReasonError::Connection)?;
-                Ok(run_blocking::Event::IncomingData(byte))
-            }
-            machine::RunEvent::Event(event) => {
-                use gdbstub::target::ext::breakpoints::WatchKind;
-
-                // translate emulator stop reason into GDB stop reason
-                let stop_reason: gdbstub::stub::BaseStopReason<(), A::Usize> = match event {
-                    machine::Event::DoneStep => SingleThreadStopReason::DoneStep,
-                    machine::Event::Halted => SingleThreadStopReason::Terminated(Signal::SIGSTOP),
-                    machine::Event::Break => SingleThreadStopReason::SwBreak(()),
-                    machine::Event::WatchWrite(addr) => SingleThreadStopReason::Watch {
-                        tid: (),
-                        kind: WatchKind::Write,
-                        addr,
-                    },
-                    machine::Event::WatchRead(addr) => SingleThreadStopReason::Watch {
-                        tid: (),
-                        kind: WatchKind::Read,
-                        addr,
-                    },
-                };
-
-                Ok(run_blocking::Event::TargetStopped(stop_reason))
-            }
-        }
-    }
-
-    // Called when Ctrl-C is sent to GDB. We can just exit.
-    fn on_interrupt(
-        _target: &mut machine::Machine<A>,
-    ) -> Result<Option<SingleThreadStopReason<A::Usize>>, <machine::Machine<A> as Target>::Error>
-    {
-        Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
-    }
-}
+use crate::trace::TraceEvent;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
-    /// Use UNIX domain socket instead of TCP.
-    #[arg(long, value_name = "SOCKET_PATH")]
-    uds: Option<PathBuf>,
-
+    // TODO: Add UDS support back, maybe.
+    // /// Use UNIX domain socket instead of TCP.
+    // #[arg(long, value_name = "SOCKET_PATH")]
+    // uds: Option<PathBuf>,
     /// Path to the ELF file
     #[arg(long, value_name = "ELF_PATH")]
     elf: PathBuf,
@@ -209,13 +106,11 @@ async fn main_impl<A: RiscvArch>(args: Args, elf: Vec<u8>) -> Result<()> {
         });
     }
 
-    tokio::task::spawn_blocking(move || main_gdb::<A>(args, elf, send_time)).await??;
-
-    Ok(())
+    main_gdb::<A>(args, elf, send_time).await
 }
 
-fn main_gdb<A: RiscvArch>(args: Args, elf: Vec<u8>, send_time: Sender<u64>) -> Result<()> {
-    let trace = match (args.ibex_trace, args.cheriot_ibex_trace) {
+async fn main_gdb<A: RiscvArch>(args: Args, elf: Vec<u8>, send_time: Sender<u64>) -> Result<()> {
+    let trace: Vec<TraceEvent<A::Usize>> = match (args.ibex_trace, args.cheriot_ibex_trace) {
         (Some(path), None) => ibex_trace::read_trace(&path),
         (None, Some(path)) => cheriot_ibex_trace::read_trace(&path),
         _ => bail!("Please provide exactly one trace file."),
@@ -223,59 +118,78 @@ fn main_gdb<A: RiscvArch>(args: Args, elf: Vec<u8>, send_time: Sender<u64>) -> R
 
     let mut done = false;
 
-    // TODO: I think it's possible to make this async using run_state_machine.
-
     while !done {
         done = true;
 
-        let mut machine = machine::Machine::new(elf.clone(), trace.clone(), send_time.clone())?;
+        let mut machine =
+            machine::Machine::<A>::new(elf.clone(), trace.clone(), send_time.clone())?;
 
-        let connection: Box<dyn ConnectionExt<Error = std::io::Error>> = match &args.uds {
-            Some(uds_path) => {
-                #[cfg(not(unix))]
-                {
-                    return Err("Unix Domain Sockets can only be used on Unix".into());
-                }
-                #[cfg(unix)]
-                {
-                    Box::new(wait_for_uds(uds_path)?)
-                }
-            }
-            None => Box::new(wait_for_tcp(9001)?),
-        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:9001").await?;
+
+        // Accept a connection.
+        let (mut socket, _) = listener.accept().await?;
+
+        let connection = BufferedConnection::default();
 
         let gdb = GdbStub::new(connection);
 
-        match gdb.run_blocking::<TraceGdbEventLoop<A>>(&mut machine) {
-            Ok(disconnect_reason) => match disconnect_reason {
-                // VSCode's "Restart" is really disconnect and reattach
-                // for remote connections. In that case we'll just start from
-                // scratch so it really is like restarting. Bit of a hack but eh.
-                DisconnectReason::Disconnect => {
-                    println!("GDB client has disconnected. Restarting...");
-                    done = false;
+        let mut gdb = gdb.run_state_machine(&mut machine)?;
+        let disconnect_reason: Result<DisconnectReason> = loop {
+            gdb = match gdb {
+                state_machine::GdbStubStateMachine::Idle(mut gdb) => {
+                    // Flush any data to be sent.
+                    gdb.borrow_conn().flush(&mut socket).await?;
+
+                    // Wait for data from the GDB client.
+                    // TODO: What does read_u8 do on disconnection?
+                    let byte = socket.read_u8().await?;
+                    gdb.incoming_data(&mut machine, byte)?
                 }
-                DisconnectReason::TargetExited(code) => {
-                    println!("Target exited with code {}!", code)
+
+                state_machine::GdbStubStateMachine::Disconnected(gdb) => {
+                    // We're going to restart the whole process on disconnection.
+                    break Ok(gdb.get_reason());
                 }
-                DisconnectReason::TargetTerminated(sig) => {
-                    println!("Target terminated with signal {}!", sig)
+
+                state_machine::GdbStubStateMachine::CtrlCInterrupt(gdb) => {
+                    // Stop on Ctrl-C.
+                    let stop_reason = Some(SingleThreadStopReason::Signal(Signal::SIGINT));
+                    gdb.interrupt_handled(&mut machine, stop_reason)?
                 }
-                DisconnectReason::Kill => println!("GDB sent a kill command!"),
-            },
-            Err(e) => {
-                if e.is_target_error() {
-                    println!(
-                        "target encountered a fatal error: {}",
-                        e.into_target_error().unwrap()
-                    )
-                } else if e.is_connection_error() {
-                    let (e, kind) = e.into_connection_error().unwrap();
-                    println!("connection error: {:?} - {}", kind, e,)
-                } else {
-                    println!("gdbstub encountered a fatal error: {}", e)
+
+                state_machine::GdbStubStateMachine::Running(mut gdb) => {
+                    // Flush any data to be sent.
+                    gdb.borrow_conn().flush(&mut socket).await?;
+
+                    // Wait for a byte from the client, and a break in the simulation.
+                    select! {
+                        // TODO: What does read_u8 do on disconnection?
+                        byte = socket.read_u8() => {
+                            gdb.incoming_data(&mut machine, byte?)?
+                        }
+                        stop_reason = machine.run() => {
+                            gdb.report_stop(&mut machine, stop_reason)?
+                        }
+                    }
                 }
             }
+        };
+
+        match disconnect_reason? {
+            // VSCode's "Restart" is really disconnect and reattach
+            // for remote connections. In that case we'll just start from
+            // scratch so it really is like restarting. Bit of a hack but eh.
+            DisconnectReason::Disconnect => {
+                println!("GDB client has disconnected. Restarting...");
+                done = false;
+            }
+            DisconnectReason::TargetExited(code) => {
+                println!("Target exited with code {}!", code)
+            }
+            DisconnectReason::TargetTerminated(sig) => {
+                println!("Target terminated with signal {}!", sig)
+            }
+            DisconnectReason::Kill => println!("GDB sent a kill command!"),
         }
     }
 
