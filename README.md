@@ -49,9 +49,8 @@ There are some known bugs/issues:
 
 1. CHERI mostly ignores tags and metadata. I'm not sure if it is possible to display capability registers in the debugger.
 2. LLDB doesn't support reverse debugging properly so if you use it it switches to disassembly view unfortunately.
-3. The Ibex trace doesn't tell you the size of a memory access, so any non-32-bit accesses will break things currently.
-4. The Ibex trace format doesn't record traps, so you can't break on trap; instead it will just magically jump to the trap handler. You can put a breakpoint in the trap handler though.
-5. No support for float or vector registers.
+3. The Ibex trace format doesn't record traps, so you can't break on trap; instead it will just magically jump to the trap handler. You can put a breakpoint in the trap handler though.
+4. No support for float or vector registers.
 
 ## Building
 

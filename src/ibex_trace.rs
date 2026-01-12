@@ -80,37 +80,22 @@ fn read_line<Usize: Num>(line: &str) -> Result<TraceEvent<Usize>> {
         (Some(val), Some(phys_addr)) => {
             // Ibex uses the same number format for all stores so the only
             // way to get the size is by checking the instruction.
-            // Fortunately all loads and stores supported by Ibex have
-            // their width in the same place - bits [12,13].
 
-            // TODO: It's actually more complex than this; I forgot about
-            // float and also there are compressed instructions like c.swsp.
-            // Assume 32-bits for now.
-
-            // let value = match (instruction >> 12) & 0b11 {
-            //     0 => Data::U8(
-            //         val.try_into()
-            //             .with_context(|| format!("parsing {val:#x} into 8 bits"))?,
-            //     ),
-            //     1 => Data::U16(
-            //         val.try_into()
-            //             .with_context(|| format!("parsing {val:#x} into 16 bits"))?,
-            //     ),
-            //     2 => Data::U32(
-            //         val.try_into()
-            //             .with_context(|| format!("parsing {val:#x} into 32 bits"))?,
-            //     ),
-            //     3 => Data::U64(
-            //         val.try_into()
-            //             .with_context(|| format!("parsing {val:#x} into 64 bits"))?,
-            //     ),
-            //     _ => unreachable!(),
-            // };
-
-            let value = Data::U32(
-                val.try_into()
-                    .with_context(|| format!("parsing {val:#x} into 32 bits"))?,
-            );
+            let value = match instruction_access_width(instruction) {
+                Some(AccessWidth::Byte) => Data::U8(
+                    val.try_into()
+                        .with_context(|| format!("parsing {val:#x} into 8 bits"))?,
+                ),
+                Some(AccessWidth::Half) => Data::U16(
+                    val.try_into()
+                        .with_context(|| format!("parsing {val:#x} into 16 bits"))?,
+                ),
+                Some(AccessWidth::Word) => Data::U32(
+                    val.try_into()
+                        .with_context(|| format!("parsing {val:#x} into 32 bits"))?,
+                ),
+                _ => bail!("Unknown access width for instruction {instruction:#x}"),
+            };
 
             Some(MemWrite {
                 phys_addr,
@@ -164,4 +149,40 @@ pub fn read_trace<Usize: Num>(file_path: &Path) -> Result<Vec<TraceEvent<Usize>>
     }
 
     Ok(events)
+}
+
+enum AccessWidth {
+    Byte,
+    Half,
+    Word,
+}
+
+fn instruction_access_width(instruction: u32) -> Option<AccessWidth> {
+    // The easiest way to do this is just to match against all the
+    // instructions that Ibex supports. The list of
+    // supported Ibex instructions is in its `rtl/ibex_tracer_pkg.sv` file.
+
+    if instruction & riscv_opcodes::MASK_LB == riscv_opcodes::MATCH_LB {
+        Some(AccessWidth::Byte)
+    } else if instruction & riscv_opcodes::MASK_LH == riscv_opcodes::MATCH_LH {
+        Some(AccessWidth::Half)
+    } else if instruction & riscv_opcodes::MASK_LW == riscv_opcodes::MATCH_LW {
+        Some(AccessWidth::Word)
+    } else if instruction & riscv_opcodes::MASK_SB == riscv_opcodes::MATCH_SB {
+        Some(AccessWidth::Byte)
+    } else if instruction & riscv_opcodes::MASK_SH == riscv_opcodes::MATCH_SH {
+        Some(AccessWidth::Half)
+    } else if instruction & riscv_opcodes::MASK_SW == riscv_opcodes::MATCH_SW {
+        Some(AccessWidth::Word)
+    } else if instruction & riscv_opcodes::MASK_C_LW == riscv_opcodes::MATCH_C_LW {
+        Some(AccessWidth::Word)
+    } else if instruction & riscv_opcodes::MASK_C_SW == riscv_opcodes::MATCH_C_SW {
+        Some(AccessWidth::Word)
+    } else if instruction & riscv_opcodes::MASK_C_LWSP == riscv_opcodes::MATCH_C_LWSP {
+        Some(AccessWidth::Word)
+    } else if instruction & riscv_opcodes::MASK_C_SWSP == riscv_opcodes::MATCH_C_SWSP {
+        Some(AccessWidth::Word)
+    } else {
+        None
+    }
 }

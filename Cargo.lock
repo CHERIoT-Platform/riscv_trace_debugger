@@ -449,6 +449,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
+name = "riscv_opcodes"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abb315f68c03838301e1dd782ef31bddc453544b1eeceab4389e93afe6b6ffff"
+
+[[package]]
 name = "riscv_trace_debugger"
 version = "0.1.0"
 dependencies = [
@@ -461,6 +467,7 @@ dependencies = [
  "log",
  "num-iter",
  "num-traits",
+ "riscv_opcodes",
  "tokio",
 ]
 
