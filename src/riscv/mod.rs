@@ -17,6 +17,7 @@ pub trait RiscvArch {
         + FromPrimitive
         + PrimInt
         + Unsigned
+        // TODO: Probably should use num_traits::ToBytes instead of this internal gdbstub trait.
         + BeBytes
         + LeBytes
         + AddAssign;
