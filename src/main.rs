@@ -227,7 +227,7 @@ async fn main_waves(waves: PathBuf, mut receive_time: Receiver<u64>) -> Result<(
             br#"{
     "type": "greeting",
     "version": "0",
-    "commands": ["cursor_set", "set_viewport_to"]
+    "commands": ["set_cursor", "set_viewport_to"]
 }"#,
         )
         .await?;
@@ -255,7 +255,7 @@ async fn main_waves(waves: PathBuf, mut receive_time: Receiver<u64>) -> Result<(
                 // Move cursor.
                 let message = format!(r#"{{
     "type": "command",
-    "command": "cursor_set",
+    "command": "set_cursor",
     "timestamp": {time}
 }}"#);
                 socket.write_all(message.as_bytes()).await?;
