@@ -57,6 +57,9 @@ pub struct Machine<A: RiscvArch> {
     // The ELF (needed so GDB can read it remotely).
     pub elf: Vec<u8>,
 
+    // Entry point (needed so we can put it in AuxV).
+    pub entry: A::Usize,
+
     pub watchpoints: Vec<A::Usize>,
     pub breakpoints: Vec<A::Usize>,
     pub files: Vec<Option<std::fs::File>>,
@@ -95,6 +98,8 @@ impl<A: RiscvArch> Machine<A> {
             .iter()
             .filter(|h| h.is_alloc() && h.sh_type != goblin::elf::section_header::SHT_NOBITS);
 
+        let entry = A::Usize::from_u64(elf_header.entry).ok_or_else(|| anyhow!("Entry point too large for architecture: {}", elf_header.entry))?;
+
         // TODO: Initialise tags.
 
         for h in sections {
@@ -118,14 +123,12 @@ impl<A: RiscvArch> Machine<A> {
             }
         }
 
-        // setup execution state
-        info!("Setting PC to {:#010x?}", elf_header.entry);
-        cpu.pc = A::Usize::from_u64(elf_header.entry).ok_or_else(|| {
-            anyhow!(
-                "Couldn't convert ELF entry point to usize: {:#x}",
-                elf_header.entry
-            )
-        })?;
+        // Set the PC to the first entry in the trace. I did initially have
+        // this set to the entry point, but some traces have steps before
+        // it gets to the entry point and it results in a weird extra jump
+        // otherwise. Fall back to the entry point in case there are no
+        // trace entries though.
+        cpu.pc = trace.first().map(|t| t.pc).unwrap_or(entry);
 
         Ok(Machine {
             exec_mode: ExecMode::Continue,
@@ -135,6 +138,8 @@ impl<A: RiscvArch> Machine<A> {
             mem,
 
             elf,
+
+            entry,
 
             trace,
             trace_index: 0,

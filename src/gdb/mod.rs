@@ -1,3 +1,17 @@
+// Additional GDB extensions
+
+mod auxv;
+mod breakpoints;
+mod exec_file;
+mod host_io;
+mod lldb_register_info_override;
+mod monitor_cmd;
+mod reverse;
+mod single_register_access;
+mod single_thread_range_step;
+mod single_thread_single_step;
+mod tracepoints;
+
 use crate::machine::ExecMode;
 use crate::machine::Machine;
 use crate::memory::Memory as _;
@@ -12,19 +26,6 @@ use gdbstub::target::ext::base::singlethread::SingleThreadBase;
 use gdbstub::target::ext::base::singlethread::SingleThreadResume;
 use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
-
-// Additional GDB extensions
-
-mod breakpoints;
-mod exec_file;
-mod host_io;
-mod lldb_register_info_override;
-mod monitor_cmd;
-mod reverse;
-mod single_register_access;
-mod single_thread_range_step;
-mod single_thread_single_step;
-mod tracepoints;
 
 /// Copy all bytes of `data` to `buf`.
 /// Return the size of data copied.
