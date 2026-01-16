@@ -456,7 +456,7 @@ checksum = "abb315f68c03838301e1dd782ef31bddc453544b1eeceab4389e93afe6b6ffff"
 
 [[package]]
 name = "riscv_trace_debugger"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
