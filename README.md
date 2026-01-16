@@ -12,7 +12,9 @@ If you have waves available in [VCD](https://en.wikipedia.org/wiki/Value_change_
 
 ## Installation
 
-Currently you need to build from source, e.g. `cargo install --path .`.
+Download [a pre-compiled release](https://github.com/CHERIoT-Platform/riscv_trace_debugger/releases/latest) or build from source with
+
+    cargo install --git https://github.com/CHERIoT-Platform/riscv_trace_debugger.git
 
 ## Use
 
