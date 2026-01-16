@@ -146,12 +146,18 @@ async fn main_gdb<A: RiscvArch>(args: Args, elf: Vec<u8>, send_time: Sender<u64>
                     gdb.incoming_data(&mut machine, byte)?
                 }
 
-                state_machine::GdbStubStateMachine::Disconnected(gdb) => {
+                state_machine::GdbStubStateMachine::Disconnected(mut gdb) => {
+                    // Flush any data to be sent.
+                    gdb.borrow_conn().flush(&mut socket).await?;
+
                     // We're going to restart the whole process on disconnection.
                     break Ok(gdb.get_reason());
                 }
 
-                state_machine::GdbStubStateMachine::CtrlCInterrupt(gdb) => {
+                state_machine::GdbStubStateMachine::CtrlCInterrupt(mut gdb) => {
+                    // Flush any data to be sent.
+                    gdb.borrow_conn().flush(&mut socket).await?;
+
                     // Stop on Ctrl-C.
                     let stop_reason = Some(SingleThreadStopReason::Signal(Signal::SIGINT));
                     gdb.interrupt_handled(&mut machine, stop_reason)?
