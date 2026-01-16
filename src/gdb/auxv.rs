@@ -2,13 +2,13 @@ use crate::machine::Machine;
 use crate::riscv::RiscvArch;
 
 use super::copy_range_to_buf;
+use gdbstub::internal::LeBytes;
 use gdbstub::target;
 use gdbstub::target::TargetResult;
-use gdbstub::internal::LeBytes;
 use num_traits::{FromPrimitive, Zero};
 
 // Copied from LLVM. There are more but we don't need them.
-const AUXV_AT_NULL: u8 = 0;    // End of auxv.
+const AUXV_AT_NULL: u8 = 0; // End of auxv.
 // const AUXV_AT_IGNORE: u8 = 1;  // Ignore entry.
 // const AUXV_AT_EXECFD: u8 = 2;  // File descriptor of program.
 // const AUXV_AT_PHDR: u8 = 3;    // Program headers.
@@ -17,7 +17,7 @@ const AUXV_AT_NULL: u8 = 0;    // End of auxv.
 // const AUXV_AT_PAGESZ: u8 = 6;  // Page size.
 // const AUXV_AT_BASE: u8 = 7;    // Interpreter base address.
 // const AUXV_AT_FLAGS: u8 = 8;   // Flags.
-const AUXV_AT_ENTRY: u8 = 9;   // Program entry point.
+const AUXV_AT_ENTRY: u8 = 9; // Program entry point.
 // const AUXV_AT_NOTELF: u8 = 10; // Set if program is not an ELF.
 // const AUXV_AT_UID: u8 = 11;    // UID.
 // const AUXV_AT_EUID: u8 = 12;   // Effective UID.

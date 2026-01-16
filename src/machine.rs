@@ -98,7 +98,12 @@ impl<A: RiscvArch> Machine<A> {
             .iter()
             .filter(|h| h.is_alloc() && h.sh_type != goblin::elf::section_header::SHT_NOBITS);
 
-        let entry = A::Usize::from_u64(elf_header.entry).ok_or_else(|| anyhow!("Entry point too large for architecture: {}", elf_header.entry))?;
+        let entry = A::Usize::from_u64(elf_header.entry).ok_or_else(|| {
+            anyhow!(
+                "Entry point too large for architecture: {}",
+                elf_header.entry
+            )
+        })?;
 
         // TODO: Initialise tags.
 
