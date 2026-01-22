@@ -126,6 +126,8 @@ async fn main_gdb<A: RiscvArch>(args: Args, elf: Vec<u8>, send_time: Sender<u64>
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:9001").await?;
 
+        info!("Listening for GDB connection on 127.0.0.1:9001...");
+
         // Accept a connection.
         let (mut socket, _) = listener.accept().await?;
 
