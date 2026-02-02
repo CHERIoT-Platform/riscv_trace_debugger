@@ -10,6 +10,10 @@ The end result is that you can take an instruction execution trace (currently on
 
 If you have waves available in [VCD](https://en.wikipedia.org/wiki/Value_change_dump) or [FST](https://blog.timhutt.co.uk/fst_spec/) format and you have [Surfer](https://surfer-project.org/) installed then it can set the cursor in the waves to the current execution time.
 
+YouTube demo:
+
+[![](https://img.youtube.com/vi/lgFmNVgn8yA/0.jpg)](https://www.youtube.com/watch?v=lgFmNVgn8yA)
+
 ## Installation
 
 Download [a pre-compiled release](https://github.com/CHERIoT-Platform/riscv_trace_debugger/releases/latest) or build from source with
